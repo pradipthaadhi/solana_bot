@@ -1,0 +1,30 @@
+{
+  "name": "sol_bot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Standalone Solana trading POC — VWAP/VWMA strategy, CoinGecko data, Phantom-compatible execution (later stages).",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "chart:install": "npm --prefix apps/chart-web install",
+    "chart:dev": "npm --prefix apps/chart-web run dev",
+    "chart:build": "npm --prefix apps/chart-web run build",
+    "trader:install": "npm --prefix apps/trader-web install",
+    "trader:dev": "npm --prefix apps/trader-web run dev",
+    "trader:build": "npm --prefix apps/trader-web run build"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@solana/web3.js": "^1.98.0",
+    "bs58": "^6.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.0",
+    "typescript": "^5.8.3",
+    "vitest": "^3.1.1"
+  }
+}
