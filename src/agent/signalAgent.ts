@@ -1,6 +1,7 @@
 /**
  * Stage 4 — single-agent orchestration: fetch → indicators → FSM → structured logs → execution hooks.
  * @see docs/STANDALONE_TRADING_POC_STAGES.md §4
+ * @see docs/STAGE8_RISK_AND_COMPLIANCE.md §3 — model / data risk when interpreting signals.
  */
 
 import { normalizeBarsAscending } from "./bars.js";
@@ -35,6 +36,12 @@ export interface SignalAgentParams {
    * (rolling-window fetches won't re-fire historical fills each poll).
    */
   executionHooksScope?: ExecutionHooksScope;
+  /**
+   * With `tail_bar_only`, also include `SIGNAL_ENTRY` / `SIGNAL_EXIT` on the previous `lookback - 1` bars.
+   * Default `1` = last bar only. Use `3` for chart UIs so `TWO_GREEN_ABOVE_VWAP` entry (often on `lastIdx - 1`)
+   * still triggers hooks while the newest bar is the following minute.
+   */
+  executionTailBarLookback?: number;
   /** Emit a structured NOOP record when a tick produces zero strategy events. */
   emitNoop?: boolean;
   log?: (record: AgentStructuredRecord) => void;
@@ -74,6 +81,8 @@ export class SignalAgent {
 
   private readonly executionHooksScope: ExecutionHooksScope;
 
+  private readonly executionTailBarLookback: number;
+
   private readonly emitNoop: boolean;
 
   private readonly log: (record: AgentStructuredRecord) => void;
@@ -84,6 +93,7 @@ export class SignalAgent {
     this.computeIndicators = params.computeIndicators ?? computeBarIndicators;
     this.execution = params.execution ?? new NoopExecutionAdapter();
     this.executionHooksScope = params.executionHooksScope ?? "tail_bar_only";
+    this.executionTailBarLookback = params.executionTailBarLookback ?? 1;
     this.emitNoop = params.emitNoop ?? false;
     this.log = params.log ?? defaultJsonLog;
   }
@@ -124,7 +134,14 @@ export class SignalAgent {
       const hooksEvents =
         this.executionHooksScope === "full_window"
           ? events
-          : events.filter((e) => e.barIndex === lastIdx && (e.kind === "SIGNAL_ENTRY" || e.kind === "SIGNAL_EXIT"));
+          : events.filter((e) => {
+              if (e.kind !== "SIGNAL_ENTRY" && e.kind !== "SIGNAL_EXIT") {
+                return false;
+              }
+              const span = Math.max(1, this.executionTailBarLookback);
+              const minIdx = Math.max(0, lastIdx - (span - 1));
+              return e.barIndex >= minIdx && e.barIndex <= lastIdx;
+            });
 
       await this.dispatchExecutionHooks(bars, hooksEvents);
 
