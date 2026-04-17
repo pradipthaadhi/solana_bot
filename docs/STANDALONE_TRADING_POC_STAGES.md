@@ -236,7 +236,7 @@ Define the **exact venue** (Jupiter aggregator, Raydium, PumpSwap-compatible rou
 
 ### 5.6 Implementation status (repo)
 
-- **Model A (Phantom):** `apps/trader-web` — Vite + React + `@solana/wallet-adapter-*` + Phantom; calls `executeJupiterSwap` from `src/execution/swapExecutor.ts` (simulate-first; optional live send when “Simulate only” is unchecked).
+- **Model A (Phantom):** `apps/trader-web` — Vite + React + `@solana/wallet-adapter-*` + Phantom; calls `executeJupiterSwap` from `src/execution/swapExecutor.ts` (simulate-first; on-chain send only when `VITE_MODE=live` **and** “Simulate only” is unchecked; `paper`/`replay` use sign-only with `broadcast: false`).
 - **Model B (headless):** `src/execution/devKeypair.ts` + `src/execution/keypairSigner.ts` — gated by `SOL_BOT_HEADLESS_SIGNER=1` and `SOLANA_SECRET_KEY` (see `.env.example`).
 - **Venue:** Jupiter **v6** quote + swap (`https://quote-api.jup.ag/v6`) — `src/execution/jupiterClient.ts`, `swapExecutor.ts`.
 - **FSM bridge:** `src/execution/jupiterExecutionAdapter.ts` — maps `SIGNAL_ENTRY` → SOL→`targetMint`, `SIGNAL_EXIT` → `targetMint`→SOL (amounts are explicit config on the adapter).
@@ -264,41 +264,65 @@ Define the **exact venue** (Jupiter aggregator, Raydium, PumpSwap-compatible rou
 - Never commit private keys or API keys.  
 - `.env` locally; secret manager in production (future).
 
+### 6.3 Implementation status (repo)
+
+- **`src/config/botEnv.ts`** — `loadBotEnv()`, `redactBotEnv()`, `buildSafetyRailsFromBotEnv()` map Stage 6 keys → typed config + `SafetyRails` (includes `operationalMode` from `MODE`).
+- **`src/execution/types.ts`** — optional `SafetyRails.operationalMode` (`replay` \| `paper` \| `live`).
+- **`src/execution/safetyRails.ts`** — `assertOnChainBroadcastAllowed()` blocks broadcast when `MODE` is not `live`.
+- **`src/execution/swapExecutor.ts`** — enforces broadcast guard **before** signing when `simulateOnly` is false.
+- **`src/execution/devKeypair.ts`** — rejects `SIGNING_MODE=phantom_ui` when loading a headless keypair.
+- **CLI:** `npm run config:print` (tsx) prints redacted JSON.
+- **Runbook:** `docs/RUNBOOK_STAGE6.md`
+- **Trader web env:** `apps/trader-web/src/traderEnv.ts` + `apps/trader-web/.env.example` — `VITE_MODE` / kill switch / RPC / mint defaults (Stage 6 parity in the browser).
+- **Headless signal → Jupiter:** `npm run signal:jupiter` — `src/cli/runHeadlessSignalJupiter.ts`, `src/signalExec/*`, `createDedupingExecutionAdapter` in `src/agent/executionAdapter.ts` (keys in Node only; chart remains notify-only). Runbook: `docs/RUNBOOK_SIGNAL_EXEC.md`.
+- **Tests:** `src/config/botEnv.test.ts`, extended `safetyRails` / `swapExecutor` / `devKeypair` tests.
+
 ---
 
 ## Stage 7 — Verification matrix (how you know it works)
 
+**Runbook / detail:** `docs/STAGE7_VERIFICATION.md`
+
 ### 7.1 Indicator parity checks
 
 - Compare a **small window** of VWAP/VWMA outputs against TradingView **only after** you align: same candle size, same session anchor, same volume source — expect mismatch if any differ.
+- **Implemented:** `src/verification/stage7Parity.test.ts` (analytical VWAP/VWMA checks + `computeBarIndicators` internal consistency).
 
 ### 7.2 Signal replay test
 
 - Freeze a CSV of OHLC rows and assert golden outputs for the FSM transitions.
+- **Implemented:** `fixtures/stage7/replay_bars.json` (+ `indicators.golden.json`, `fsm_events.golden.json`, `manifest.json`) and `src/verification/stage7Replay.test.ts`. Regenerate: `npm run stage7:gen-golden`.
 
 ### 7.3 Chain test
 
 - **Devnet** dry run first.  
 - **Mainnet** micro-buy only after simulation passes and balances are verified.
+- **Implemented (opt-in, read-only RPC):** `src/verification/stage7Chain.test.ts` when `SOL_BOT_STAGE7_CHAIN_TEST=1` (see `.env.example`). Swaps remain manual / trader-web / headless flows per Stage 5–6.
 
 ---
 
 ## Stage 8 — Risks, compliance, and next iterations
 
+**Runbook (implemented):** `docs/STAGE8_RISK_AND_COMPLIANCE.md`  
+**Encoded anchors:** `src/scope/stage8.ts` (risk themes, policy reminders, post-POC roadmap strings; tests in `src/scope/stage8.test.ts`)
+
 ### 8.1 Market and model risk
 
 - Pump-phase charts are **non-stationary**; a rule that looks good on one screenshot can fail broadly.  
 - **Latency** and **partial fills** can desync signal vs execution.
+- **Expanded in:** `docs/STAGE8_RISK_AND_COMPLIANCE.md` §3–4 (non-stationarity, signal–execution gap, data divergence, execution table).
 
 ### 8.2 Legal / policy
 
 - Ensure you comply with local law, exchange/venue ToS, and tax reporting obligations.
+- **Expanded in:** `docs/STAGE8_RISK_AND_COMPLIANCE.md` §5 (not legal advice; recordkeeping; venue ToS). UI footers use `STAGE8_EDUCATIONAL_FOOTER` from `src/scope/stage8.ts`.
 
 ### 8.3 Suggested “Stage 9+” after POC passes
 
 - Upgrade to **DEX websocket candles** for **1m** fidelity.  
 - Add **fees + slip model** in backtest.  
 - Multi-venue routing and inventory management.
+- **Expanded in:** `docs/STAGE8_RISK_AND_COMPLIANCE.md` §6 and `SUGGESTED_POST_POC_ITERATIONS` in `src/scope/stage8.ts`.
 
 ---
 
@@ -312,6 +336,12 @@ Define the **exact venue** (Jupiter aggregator, Raydium, PumpSwap-compatible rou
 - [ ] Signing model chosen (Phantom UI vs dev keypair)  
 - [ ] Swap path chosen and simulated successfully  
 - [ ] Mainnet trade size capped and reversible (can exit)
+- [ ] Stage 6: `.env` / `MODE` / `SIGNING_MODE` documented; `npm run config:print` reviewed  
+- [ ] Stage 6: `buildSafetyRailsFromBotEnv` (or equivalent) passes `operationalMode` into execution when using `executeJupiterSwap`
+- [ ] Stage 7: `npm test` includes replay + parity; optional `SOL_BOT_STAGE7_CHAIN_TEST=1` RPC check when you want it
+- [ ] Stage 7: TV / external parity spot-check documented if you claim chart alignment (`docs/STAGE7_VERIFICATION.md` §7.1)
+- [ ] Stage 8: Read `docs/STAGE8_RISK_AND_COMPLIANCE.md`; complete operator checklist §7 before non-trivial capital
+- [ ] Stage 8: Confirm UI/educational disclaimers are acceptable for your distribution context (`STAGE8_EDUCATIONAL_FOOTER`)
 
 ---
 
@@ -327,5 +357,5 @@ Define the **exact venue** (Jupiter aggregator, Raydium, PumpSwap-compatible rou
 
 ---
 
-**Document version:** 1.0  
-**Last updated:** 2026-04-16
+**Document version:** 1.1  
+**Last updated:** 2026-04-17
