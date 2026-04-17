@@ -123,4 +123,35 @@ describe("executeJupiterSwap (Stage 5.4–5.5)", () => {
     expect(sendRawTransaction).toHaveBeenCalledOnce();
     expect(res.signature).toBe("sig111");
   });
+
+  it("MODE=paper blocks broadcast before signing (Stage 6)", async () => {
+    vi.spyOn(jupiter, "fetchJupiterQuote").mockResolvedValue({ inAmount: "100" });
+    vi.spyOn(jupiter, "fetchJupiterSwapTransaction").mockResolvedValue({ swapTransaction: sampleSignedSwapTxB64() });
+
+    const signTransaction = vi.fn(async (tx: VersionedTransaction) => tx);
+    const conn = {
+      getLatestBlockhash: vi.fn(),
+      simulateTransaction: vi.fn().mockResolvedValue({ value: { err: null, logs: [] }, context: { slot: 1 } }),
+      sendRawTransaction: vi.fn(),
+      confirmTransaction: vi.fn(),
+    } as unknown as Connection;
+
+    await expect(
+      executeJupiterSwap({
+        connection: conn,
+        userPublicKeyBase58: Keypair.generate().publicKey.toBase58(),
+        quoteParams: {
+          inputMint: "So11111111111111111111111111111111111111112",
+          outputMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          amount: 100n,
+          slippageBps: 50,
+        },
+        rails: { killSwitchEngaged: false, maxInputRaw: 100n, operationalMode: "paper" },
+        signTransaction,
+        simulateOnly: false,
+        broadcast: { broadcast: true, skipPreflight: true, commitment: "processed" },
+      }),
+    ).rejects.toThrow(/MODE_PAPER/);
+    expect(signTransaction).not.toHaveBeenCalled();
+  });
 });

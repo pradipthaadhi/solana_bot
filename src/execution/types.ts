@@ -3,6 +3,7 @@
  */
 
 import type { Commitment } from "@solana/web3.js";
+import type { OperationalMode } from "../scope/stage0.js";
 
 export type SolanaCluster = "mainnet-beta" | "devnet";
 
@@ -35,6 +36,11 @@ export interface SafetyRails {
   killSwitchEngaged: boolean;
   /** Maximum input amount (base units) allowed for this leg. */
   maxInputRaw: bigint;
+  /**
+   * When set to `paper` or `replay`, {@link executeJupiterSwap} refuses on-chain broadcast even if the caller requests it.
+   * Omit for backward-compatible “caller controls policy” behavior (tests / Model A UI).
+   */
+  operationalMode?: OperationalMode;
 }
 
 export interface BroadcastOptions {

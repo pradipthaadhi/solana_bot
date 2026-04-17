@@ -1,6 +1,8 @@
 /**
  * Stage 5.4–5.5 — Jupiter v6 quote → swap transaction → simulate → optional broadcast.
  * Jupiter routing is **mainnet-centric**; use a mainnet RPC endpoint in production.
+ *
+ * @see docs/STAGE8_RISK_AND_COMPLIANCE.md — execution risk, caps, and responsible use (not legal advice).
  */
 
 import {
@@ -10,7 +12,7 @@ import {
   type SimulatedTransactionResponse,
 } from "@solana/web3.js";
 import { assertRpcHealthy } from "./rpcHealth.js";
-import { assertTradingAllowed, assertWithinMaxInput } from "./safetyRails.js";
+import { assertOnChainBroadcastAllowed, assertTradingAllowed, assertWithinMaxInput } from "./safetyRails.js";
 import { fetchJupiterQuote, fetchJupiterSwapTransaction, readQuotedInputAmount } from "./jupiterClient.js";
 import type { BroadcastOptions, JupiterQuoteParams, SafetyRails, SignVersionedTransaction } from "./types.js";
 
@@ -96,9 +98,11 @@ export async function executeJupiterSwap(params: ExecuteJupiterSwapParams): Prom
     return { quote, simulation };
   }
 
+  const bc = params.broadcast ?? { broadcast: true };
+  assertOnChainBroadcastAllowed(params.rails, bc.broadcast);
+
   const signed = await params.signTransaction(tx);
 
-  const bc = params.broadcast ?? { broadcast: true };
   if (!bc.broadcast) {
     return { quote, simulation };
   }
