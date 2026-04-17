@@ -6,7 +6,10 @@
   "description": "Standalone Solana trading POC — VWAP/VWMA strategy, CoinGecko data, Phantom-compatible execution (later stages).",
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "config:print": "tsx src/cli/printBotEnv.ts",
     "test": "vitest run",
+    "stage7:gen-golden": "tsx scripts/gen-stage7-goldens.ts",
+    "signal:jupiter": "tsx src/cli/runHeadlessSignalJupiter.ts",
     "test:watch": "vitest",
     "chart:install": "npm --prefix apps/chart-web install",
     "chart:dev": "npm --prefix apps/chart-web run dev",
@@ -24,6 +27,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
+    "tsx": "^4.19.3",
     "typescript": "^5.8.3",
     "vitest": "^3.1.1"
   }

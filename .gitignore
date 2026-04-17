@@ -6,3 +6,4 @@ dist/
 .DS_Store
 .cursor/
 .package-lock.json
+apps/chart-web/positions.txt
