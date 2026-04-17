@@ -15,10 +15,14 @@ import {
 } from "lightweight-charts";
 import type { ExecutionAdapter, ExecutionSignalPayload } from "@bot/agent/executionAdapter.js";
 import { SignalAgent } from "@bot/agent/signalAgent.js";
-import { describeGeckoTerminalFetchError, fetchSolanaPoolOhlcv1m } from "@bot/data/geckoTerminalOhlcv.js";
+import {
+  describeGeckoTerminalFetchError,
+  fetchSolanaPoolOhlcv1m,
+  mergeTailRefresh,
+  prependOlderOhlcv,
+} from "@bot/data/geckoTerminalOhlcv.js";
 import type { Ohlcv } from "@bot/strategy/candleSemantics.js";
 import type { BarIndicators } from "@bot/strategy/barIndicators.js";
-import { CHART_DISPLAY_WINDOW_MS_DEFAULT, sliceOhlcvSeriesForTrailingWindow } from "@bot/chart/displayWindow.js";
 import { STAGE8_EDUCATIONAL_FOOTER } from "@bot/scope/stage8.js";
 import { DEFAULT_STRATEGY_CONFIG } from "@bot/strategy/strategyConfig.js";
 import type { StrategyEvent } from "@bot/strategy/types.js";
@@ -119,7 +123,14 @@ function clampLogicalRangeToBarCount(range: LogicalRange, barCount: number): Log
   return { from: from as Logical, to: to as Logical };
 }
 
-/** After OHLCV refresh: full reload fits content; silent poll restores prior time/price window. */
+/** Default 1m window width on first load / explicit reload (~2h). */
+const DEFAULT_VISIBLE_1M_BARS = 120;
+/** When the left edge of the visible logical range is within this many bars of index 0, fetch older OHLCV. */
+const HISTORY_PREFETCH_FROM_EDGE = 28;
+/** Page size for `before_timestamp` requests (GeckoTerminal public rate limit: stay conservative). */
+const HISTORY_PAGE_LIMIT = 500;
+
+/** After OHLCV refresh: first paint shows the latest ~2h of 1m bars; silent poll restores prior time/price window. */
 function applyTimeScaleAfterData(
   chart: IChartApi,
   silent: boolean,
@@ -128,7 +139,14 @@ function applyTimeScaleAfterData(
   prevLogical: LogicalRange | null,
 ): void {
   if (!silent) {
-    chart.timeScale().fitContent();
+    if (barCount < 1) {
+      return;
+    }
+    const vis = Math.min(DEFAULT_VISIBLE_1M_BARS, barCount);
+    chart.timeScale().setVisibleLogicalRange({
+      from: (barCount - vis) as Logical,
+      to: (barCount - 1) as Logical,
+    });
     return;
   }
   if (prevTime !== null) {
@@ -246,7 +264,7 @@ function mount(): void {
       </div>
       <div class="hint">
         1m OHLCV from GeckoTerminal (public beta). A <b>demo pool</b> loads automatically so the chart is visible; paste your own pool id and click <b>Load</b>.
-        Chart refreshes every <b>60s</b> and recomputes VWAP + VWMA 3/9/18 on the <b>full</b> downloaded series; the candle view shows only the <b>latest 2 hours</b> of 1m bars. Move the mouse over the chart to update the metrics and the line below for that bar’s time; pan/zoom stays on refresh when possible. The time scale does not scroll past the first/last candle (no empty side margins).
+        Chart refreshes every <b>60s</b> and recomputes VWAP + VWMA 3/9/18 on the <b>merged</b> in-memory series (latest GeckoTerminal page plus any older pages you load). The default view is the <b>latest ~2 hours</b> of 1m bars; <b>pan left</b> near the left edge to fetch older candles via GeckoTerminal <code>before_timestamp</code>. Move the mouse over the chart to update the metrics and the OHLC line for that bar. The right edge stays pinned to the newest candle (no empty margin past the last bar).
         If GeckoTerminal fails after a <b>Wi‑Fi / VPN / proxy</b> hiccup, the client <b>retries with backoff</b>; press <b>Load</b> after the network stabilizes. Silent refresh will not spam a red error over your chart.
         <b>In-app toasts</b> (bottom-right) for signals; <b>BUY/SELL</b> also append to <code>positions.txt</code> (JSON Lines: dev server file + browser localStorage). Use <b>Enable notifications</b> for OS alerts. <b>No Solana transactions</b>.
       </div>
@@ -340,6 +358,21 @@ function mount(): void {
   const chartEl = $("#chart");
   const chartOverlay = $("#chart-overlay");
 
+  /** Merged OHLCV for the active pool (rolling tail + optional older pages from `before_timestamp`). */
+  let sessionBars: Ohlcv[] = [];
+  let sessionMergePool = "";
+  let historyExhausted = false;
+  let historyBusy = false;
+  let lastPairLabel = "SOL/USDC";
+
+  // GeckoTerminal returns Access-Control-Allow-Origin: * — browser GET avoids Vite's Node proxy.
+  const apiBase = "https://api.geckoterminal.com/api/v2";
+  /** Extra attempts for flaky Wi‑Fi / VPN / proxy (Chromium often reports only "Failed to fetch"). */
+  const geckoFetchAttempts = 8;
+  const geckoFetchTimeoutMs = 70_000;
+
+  let busy = false;
+
   const chart: IChartApi = createChart(chartEl, {
     width: chartEl.clientWidth,
     height: 520,
@@ -358,7 +391,7 @@ function mount(): void {
       timeVisible: true,
       secondsVisible: false,
       rightOffset: 0,
-      fixLeftEdge: true,
+      fixLeftEdge: false,
       fixRightEdge: true,
     },
   });
@@ -383,6 +416,14 @@ function mount(): void {
   const w3 = chart.addLineSeries({ color: "#2962ff", lineWidth: 1, title: "VWMA 3" });
   const w9 = chart.addLineSeries({ color: "#9c27b0", lineWidth: 1, title: "VWMA 9" });
   const w18 = chart.addLineSeries({ color: "#fbc02d", lineWidth: 1, title: "VWMA 18" });
+
+  const updateMetrics = (barIdx: number, indicators: readonly MetricsRow[]) => {
+    const row = indicators[barIdx];
+    $("#m-vwap").textContent = fmt(row?.vwap);
+    $("#m-3").textContent = fmt(row?.vwma3);
+    $("#m-9").textContent = fmt(row?.vwma9);
+    $("#m-18").textContent = fmt(row?.vwma18);
+  };
 
   const crosshairHudEl = $("#crosshair-hud");
 
@@ -456,7 +497,6 @@ function mount(): void {
   ro.observe(chartEl);
 
   let timer: number | undefined;
-  let busy = false;
 
   const showBanner = (kind: "hidden" | "err" | "info", msg: string) => {
     if (kind === "hidden") {
@@ -477,20 +517,94 @@ function mount(): void {
     }
   };
 
-  // GeckoTerminal returns Access-Control-Allow-Origin: * — browser GET avoids Vite's Node proxy
-  // (which can ETIMEDOUT to api.geckoterminal.com independently of the browser).
-  const apiBase = "https://api.geckoterminal.com/api/v2";
-  /** Extra attempts for flaky Wi‑Fi / VPN / proxy (Chromium often reports only "Failed to fetch"). */
-  const geckoFetchAttempts = 8;
-  const geckoFetchTimeoutMs = 70_000;
+  let visibleRangeDebounce: number | undefined;
 
-  const updateMetrics = (barIdx: number, indicators: readonly MetricsRow[]) => {
-    const row = indicators[barIdx];
-    $("#m-vwap").textContent = fmt(row?.vwap);
-    $("#m-3").textContent = fmt(row?.vwma3);
-    $("#m-9").textContent = fmt(row?.vwma9);
-    $("#m-18").textContent = fmt(row?.vwma18);
+  const loadOlderChunk = async (): Promise<void> => {
+    const pool = poolInput.value.trim();
+    if (!pool || historyExhausted || historyBusy || busy || sessionBars.length < 2) {
+      return;
+    }
+    historyBusy = true;
+    const prevLogical = chart.timeScale().getVisibleLogicalRange();
+    const beforeLen = sessionBars.length;
+    try {
+      const oldestSec = Math.floor(sessionBars[0]!.timeMs / 1000);
+      const { bars: chunk } = await fetchSolanaPoolOhlcv1m({
+        poolAddress: pool,
+        limit: HISTORY_PAGE_LIMIT,
+        beforeTimestampSec: oldestSec,
+        apiBaseUrl: apiBase,
+        maxAttempts: geckoFetchAttempts,
+        fetchTimeoutMs: geckoFetchTimeoutMs,
+      });
+      if (chunk.length === 0) {
+        historyExhausted = true;
+        return;
+      }
+      const merged = prependOlderOhlcv(sessionBars, chunk);
+      const added = merged.length - beforeLen;
+      if (added <= 0) {
+        historyExhausted = true;
+        return;
+      }
+      const agent = new SignalAgent({
+        strategy: DEFAULT_STRATEGY_CONFIG,
+        execution: createNotifyExecution(lastPairLabel, pool, toastHost, deliveredSignals, renderPositionsTableBody),
+        executionHooksScope: "tail_bar_only",
+        executionTailBarLookback: EXEC_SIGNAL_TAIL_LOOKBACK,
+        log: () => {},
+      });
+      const res = await agent.runTick(async () => merged);
+      if (!res.ok) {
+        console.warn("[chart-web] history merge: strategy step failed:", res.error);
+        return;
+      }
+      sessionBars = merged;
+      chartViewBars = res.bars;
+      chartViewIndicators = res.indicators;
+
+      candles.setData(toCandles(res.bars));
+      vol.setData(toVolume(res.bars));
+      vwap.setData(toLine(res.bars, res.indicators.map((i) => i.vwap)));
+      w3.setData(toLine(res.bars, res.indicators.map((i) => i.vwma3)));
+      w9.setData(toLine(res.bars, res.indicators.map((i) => i.vwma9)));
+      w18.setData(toLine(res.bars, res.indicators.map((i) => i.vwma18)));
+
+      if (prevLogical !== null && added > 0) {
+        const from = (prevLogical.from as number) + added;
+        const to = (prevLogical.to as number) + added;
+        chart.timeScale().setVisibleLogicalRange(clampLogicalRangeToBarCount({ from: from as Logical, to: to as Logical }, res.bars.length));
+      } else {
+        chart.timeScale().fitContent();
+      }
+      const viewLastIdx = res.bars.length - 1;
+      updateMetrics(viewLastIdx >= 0 ? viewLastIdx : 0, res.indicators);
+    } catch (e) {
+      console.warn("[chart-web] loading older OHLCV failed:", e);
+    } finally {
+      historyBusy = false;
+    }
   };
+
+  const onVisibleLogicalRangeMaybePrefetch = (range: LogicalRange | null): void => {
+    if (range === null || sessionBars.length < 2) {
+      return;
+    }
+    if (historyExhausted || historyBusy || busy) {
+      return;
+    }
+    const from = range.from as number;
+    if (from > HISTORY_PREFETCH_FROM_EDGE) {
+      return;
+    }
+    void loadOlderChunk();
+  };
+
+  const onVisibleLogicalRangeChanged = (range: LogicalRange | null): void => {
+    window.clearTimeout(visibleRangeDebounce);
+    visibleRangeDebounce = window.setTimeout(() => onVisibleLogicalRangeMaybePrefetch(range), 480);
+  };
+  chart.timeScale().subscribeVisibleLogicalRangeChange(onVisibleLogicalRangeChanged);
 
   async function tick(opts?: { silent?: boolean }): Promise<void> {
     const pool = poolInput.value.trim();
@@ -503,7 +617,7 @@ function mount(): void {
       setChartOverlay(true, "No pool address — paste a pool id above, or reload to restore the demo pool.");
       return;
     }
-    if (busy) {
+    if (busy || historyBusy) {
       return;
     }
     busy = true;
@@ -529,7 +643,15 @@ function mount(): void {
         return;
       }
 
+      if (pool !== sessionMergePool) {
+        sessionMergePool = pool;
+        sessionBars = [];
+        historyExhausted = false;
+      }
+      sessionBars = mergeTailRefresh(sessionBars, bars);
+
       const label = `${meta.baseSymbol ?? "BASE"}/${meta.quoteSymbol ?? "QUOTE"}`;
+      lastPairLabel = label;
       pair.textContent = `${label} · 1m · pool ${pool}`;
       subpair.textContent =
         pool === DEFAULT_DEMO_POOL_ADDRESS
@@ -545,7 +667,7 @@ function mount(): void {
         log: () => {},
       });
 
-      const res = await agent.runTick(async () => bars);
+      const res = await agent.runTick(async () => sessionBars);
       if (!res.ok) {
         showBanner("err", res.error);
         setChartOverlay(true, "Strategy / indicator step failed. See message above.");
@@ -555,26 +677,20 @@ function mount(): void {
       const prevTimeRange = silent ? chart.timeScale().getVisibleRange() : null;
       const prevLogicalRange = silent ? chart.timeScale().getVisibleLogicalRange() : null;
 
-      const { viewBars, viewIndicators } = sliceOhlcvSeriesForTrailingWindow(
-        res.bars,
-        res.indicators,
-        CHART_DISPLAY_WINDOW_MS_DEFAULT,
-      );
+      chartViewBars = res.bars;
+      chartViewIndicators = res.indicators;
 
-      chartViewBars = viewBars;
-      chartViewIndicators = viewIndicators;
-
-      candles.setData(toCandles(viewBars));
-      vol.setData(toVolume(viewBars));
-      vwap.setData(toLine(viewBars, viewIndicators.map((i) => i.vwap)));
-      w3.setData(toLine(viewBars, viewIndicators.map((i) => i.vwma3)));
-      w9.setData(toLine(viewBars, viewIndicators.map((i) => i.vwma9)));
-      w18.setData(toLine(viewBars, viewIndicators.map((i) => i.vwma18)));
-      applyTimeScaleAfterData(chart, silent, viewBars.length, prevTimeRange, prevLogicalRange);
+      candles.setData(toCandles(res.bars));
+      vol.setData(toVolume(res.bars));
+      vwap.setData(toLine(res.bars, res.indicators.map((i) => i.vwap)));
+      w3.setData(toLine(res.bars, res.indicators.map((i) => i.vwma3)));
+      w9.setData(toLine(res.bars, res.indicators.map((i) => i.vwma9)));
+      w18.setData(toLine(res.bars, res.indicators.map((i) => i.vwma18)));
+      applyTimeScaleAfterData(chart, silent, res.bars.length, prevTimeRange, prevLogicalRange);
 
       const lastIdx = res.bars.length - 1;
-      const viewLastIdx = viewBars.length - 1;
-      updateMetrics(viewLastIdx >= 0 ? viewLastIdx : 0, viewIndicators);
+      const viewLastIdx = res.bars.length - 1;
+      updateMetrics(viewLastIdx >= 0 ? viewLastIdx : 0, res.indicators);
       crosshairHudEl.textContent = "";
       setChartOverlay(false);
 
@@ -661,6 +777,8 @@ function mount(): void {
       window.clearInterval(timer);
     }
     window.clearTimeout(onlineRetryTimer);
+    window.clearTimeout(visibleRangeDebounce);
+    chart.timeScale().unsubscribeVisibleLogicalRangeChange(onVisibleLogicalRangeChanged);
     chart.remove();
   });
 }

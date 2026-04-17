@@ -95,11 +95,45 @@ export function parseGeckoTerminalOhlcvJson(payload: unknown): GeckoTerminalOhlc
   return { bars: geckoOhlcvListToBars(list), meta: parseMeta(payload) };
 }
 
+/**
+ * Merge many OHLCV arrays into one ascending series; duplicate `timeMs` keys keep the **last** write (later arrays win).
+ */
+export function mergeOhlcvUniqueSorted(chunks: readonly (readonly Ohlcv[])[]): Ohlcv[] {
+  const byTime = new Map<number, Ohlcv>();
+  for (const chunk of chunks) {
+    for (const b of chunk) {
+      byTime.set(b.timeMs, b);
+    }
+  }
+  return [...byTime.values()].sort((a, b) => a.timeMs - b.timeMs);
+}
+
+/**
+ * Refresh the rolling “latest candles” tail from GeckoTerminal while keeping any bars **older** than the new tail’s oldest bucket.
+ */
+export function mergeTailRefresh(session: readonly Ohlcv[], freshTail: readonly Ohlcv[]): Ohlcv[] {
+  if (freshTail.length === 0) {
+    return [...session];
+  }
+  const oldestFreshMs = freshTail[0]!.timeMs;
+  const prefix = session.filter((b) => b.timeMs < oldestFreshMs);
+  return mergeOhlcvUniqueSorted([prefix, freshTail]);
+}
+
+/** Prepend an older OHLCV page (typically from `before_timestamp`) and de-duplicate by open time. */
+export function prependOlderOhlcv(session: readonly Ohlcv[], olderChunk: readonly Ohlcv[]): Ohlcv[] {
+  return mergeOhlcvUniqueSorted([olderChunk, session]);
+}
+
 export interface FetchSolanaPoolOhlcv1mParams {
   poolAddress: string;
   /** 1 = 1-minute candles on GeckoTerminal. */
   aggregateMinutes?: 1;
   limit?: number;
+  /**
+   * Unix **seconds** (bucket open). Returns candles strictly before this timestamp (GeckoTerminal `before_timestamp`).
+   */
+  beforeTimestampSec?: number;
   signal?: AbortSignal;
   /**
    * API root. Default public API. In local dev you may proxy e.g. `/gt-api` → `https://api.geckoterminal.com/api/v2`.
@@ -242,13 +276,16 @@ async function fetchGeckoOhlcvOnce(
 }
 
 export async function fetchSolanaPoolOhlcv1m(params: FetchSolanaPoolOhlcv1mParams): Promise<GeckoTerminalOhlcvResult> {
-  const { poolAddress, limit = 500, signal: externalSignal } = params;
+  const { poolAddress, limit = 500, signal: externalSignal, beforeTimestampSec } = params;
   const base = params.apiBaseUrl ?? "https://api.geckoterminal.com/api/v2";
   const maxAttempts = params.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
   const fetchTimeoutMs = params.fetchTimeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS;
   const url = new URL(`${base}/networks/solana/pools/${encodeURIComponent(poolAddress)}/ohlcv/minute`);
   url.searchParams.set("aggregate", "1");
   url.searchParams.set("limit", String(limit));
+  if (beforeTimestampSec !== undefined) {
+    url.searchParams.set("before_timestamp", String(Math.floor(beforeTimestampSec)));
+  }
   const urlStr = url.toString();
 
   let lastError: unknown;

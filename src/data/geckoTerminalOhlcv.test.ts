@@ -1,10 +1,18 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { Ohlcv } from "../strategy/candleSemantics.js";
 import {
   describeGeckoTerminalFetchError,
   fetchSolanaPoolOhlcv1m,
   geckoOhlcvListToBars,
+  mergeTailRefresh,
   parseGeckoTerminalOhlcvJson,
+  prependOlderOhlcv,
 } from "./geckoTerminalOhlcv.js";
+
+function bar(timeSec: number, close: number): Ohlcv {
+  const timeMs = timeSec * 1000;
+  return { open: close, high: close, low: close, close, volume: 1, timeMs };
+}
 
 describe("describeGeckoTerminalFetchError", () => {
   it("maps proxy-like failures to actionable copy", () => {
@@ -44,6 +52,23 @@ describe("geckoTerminalOhlcv", () => {
     expect(bars).toHaveLength(1);
     expect(meta.baseSymbol).toBe("AAA");
     expect(meta.quoteSymbol).toBe("BBB");
+  });
+});
+
+describe("mergeTailRefresh / prependOlderOhlcv", () => {
+  it("mergeTailRefresh keeps prefix older than the new tail’s oldest bar", () => {
+    const session = [bar(100, 1), bar(200, 2), bar(300, 3)];
+    const tail = [bar(200, 22), bar(300, 33), bar(400, 4)];
+    const m = mergeTailRefresh(session, tail);
+    expect(m.map((b) => b.timeMs)).toEqual([100_000, 200_000, 300_000, 400_000]);
+    expect(m.find((b) => b.timeMs === 200_000)?.close).toBe(22);
+  });
+
+  it("prependOlderOhlcv dedupes overlapping timestamps", () => {
+    const session = [bar(200, 2)];
+    const older = [bar(100, 1), bar(200, 9)];
+    const m = prependOlderOhlcv(session, older);
+    expect(m.map((b) => b.close)).toEqual([1, 2]);
   });
 });
 
@@ -113,6 +138,21 @@ describe("fetchSolanaPoolOhlcv1m", () => {
       }),
     ).rejects.toThrow();
     expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("includes before_timestamp in the request URL when set", async () => {
+    const spy = vi.fn(async () => new Response(JSON.stringify(emptyPayload), { status: 200 }));
+    vi.stubGlobal("fetch", spy);
+    await fetchSolanaPoolOhlcv1m({
+      poolAddress: "PoolAddr1",
+      limit: 10,
+      beforeTimestampSec: 1_700_000_000,
+      maxAttempts: 2,
+      fetchTimeoutMs: 2000,
+    });
+    expect(spy).toHaveBeenCalled();
+    const url = String(spy.mock.calls[0]?.[0] ?? "");
+    expect(url).toContain("before_timestamp=1700000000");
   });
 
   it("retries on HTTP 503 then succeeds", async () => {
