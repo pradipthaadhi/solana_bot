@@ -1,0 +1,17 @@
+[
+  {
+    "kind": "SIGNAL_ARMED",
+    "barIndex": 63,
+    "reason": "bull3_9 on close while below VWAP (per configured rule on cross bar)"
+  },
+  {
+    "kind": "SIGNAL_ENTRY",
+    "barIndex": 70,
+    "reason": "Two consecutive bullish closes above VWAP after bullish 3/9 cross below VWAP"
+  },
+  {
+    "kind": "SIGNAL_EXIT",
+    "barIndex": 92,
+    "reason": "bear9_18: VWMA(9) crossed below VWMA(18) on bar close"
+  }
+]

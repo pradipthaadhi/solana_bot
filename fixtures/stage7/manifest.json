@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "barCount": 220,
+  "strategy": {
+    "vwap": "UTC_DAY",
+    "belowVwap": "CLOSE",
+    "entryConfirm": "TWO_GREEN_ABOVE_VWAP",
+    "volumeZero": "SKIP_SIGNALS",
+    "invalidateArmedOnBearish3_9": true
+  },
+  "finalPhase": "FLAT",
+  "eventCount": 3,
+  "generatedBy": "scripts/gen-stage7-goldens.ts"
+}
