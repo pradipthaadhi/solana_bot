@@ -32,3 +32,35 @@ export class CapturingExecutionAdapter implements ExecutionAdapter {
     this.exits.push(payload);
   }
 }
+
+/**
+ * Wraps an adapter so each distinct `(barIndex, timeMs)` fires at most once per kind across polls.
+ * Without this, `tail_bar_only` hooks can repeat the same historical `SIGNAL_*` on every poll.
+ */
+export function createDedupingExecutionAdapter(
+  inner: ExecutionAdapter,
+  seen: Set<string> = new Set(),
+): ExecutionAdapter {
+  const dedupe = (kind: "ENTRY" | "EXIT", payload: ExecutionSignalPayload): boolean => {
+    const key = `${kind}:${payload.barIndex}:${payload.timeMs}`;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  };
+  return {
+    onSignalEntry(payload) {
+      if (!dedupe("ENTRY", payload)) {
+        return;
+      }
+      return inner.onSignalEntry(payload);
+    },
+    onSignalExit(payload) {
+      if (!dedupe("EXIT", payload)) {
+        return;
+      }
+      return inner.onSignalExit(payload);
+    },
+  };
+}

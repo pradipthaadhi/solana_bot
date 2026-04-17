@@ -70,6 +70,7 @@ describe("SignalAgent (Stage 4)", () => {
     const agent = new SignalAgent({
       strategy: DEFAULT_STRATEGY_CONFIG,
       execution: cap,
+      executionTailBarLookback: 1,
       computeIndicators: (barsIn) => {
         expect(barsIn.length).toBe(fixtureIndicators.length);
         return fixtureIndicators;
@@ -99,6 +100,46 @@ describe("SignalAgent (Stage 4)", () => {
     expect(cap.exits[0]?.barIndex).toBe(5);
     expect(logs).toContain("SIGNAL_ARMED");
     expect(logs).toContain("TICK_OK");
+  });
+
+  it("tail_bar_only with executionTailBarLookback includes recent entry + exit", async () => {
+    const cap = new CapturingExecutionAdapter();
+    const fixtureIndicators: BarIndicators[] = [
+      { vwap: 10, vwma3: 1, vwma9: 2, vwma18: 4 },
+      { vwap: 10, vwma3: 1, vwma9: 2, vwma18: 4 },
+      { vwap: 10, vwma3: 3, vwma9: 2, vwma18: 4 },
+      { vwap: 8, vwma3: 4, vwma9: 3, vwma18: 4 },
+      { vwap: 8, vwma3: 5, vwma9: 4, vwma18: 4 },
+      { vwap: 8, vwma3: 5, vwma9: 3, vwma18: 4 },
+    ];
+    const agent = new SignalAgent({
+      strategy: DEFAULT_STRATEGY_CONFIG,
+      execution: cap,
+      executionTailBarLookback: 3,
+      computeIndicators: (barsIn) => {
+        expect(barsIn.length).toBe(fixtureIndicators.length);
+        return fixtureIndicators;
+      },
+      log: () => {},
+    });
+    const bars: Ohlcv[] = [
+      bar(1, 2, 1, 1, 1_000),
+      bar(1, 2, 1, 1, 2_000),
+      bar(1, 6, 1, 5, 3_000),
+      bar(7, 10, 6, 9, 4_000),
+      bar(8, 11, 7, 10, 5_000),
+      bar(8, 11, 7, 10, 6_000),
+    ];
+    const res = await agent.runTick(async () => bars);
+    expect(res.ok).toBe(true);
+    if (!res.ok) {
+      throw new Error("expected ok tick");
+    }
+    expect(res.executionHooksApplied.map((e) => e.kind)).toEqual(["SIGNAL_ENTRY", "SIGNAL_EXIT"]);
+    expect(cap.entries).toHaveLength(1);
+    expect(cap.exits).toHaveLength(1);
+    expect(cap.entries[0]?.barIndex).toBe(4);
+    expect(cap.exits[0]?.barIndex).toBe(5);
   });
 
   it("can invoke execution hooks for the full replay window", async () => {
