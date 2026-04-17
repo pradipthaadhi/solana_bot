@@ -21,6 +21,7 @@ import type { JupiterQuoteParams, SafetyRails } from "@bot/execution/types.js";
 import { NATIVE_SOL_MINT } from "@bot/execution/types.js";
 import { STAGE8_EDUCATIONAL_FOOTER } from "@bot/scope/stage8.js";
 import { readTraderViteEnv } from "./traderEnv.js";
+import { SignalBotPanel } from "./SignalBotPanel";
 
 const DEFAULT_RPC = "https://api.mainnet-beta.solana.com";
 const DEFAULT_OUTPUT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
@@ -31,10 +32,11 @@ function Inner(): ReactElement {
   const { connection } = useConnection();
   const { publicKey, signTransaction, connected } = useWallet();
   const [outputMint, setOutputMint] = useState(() => TRADER_ENV.defaultTokenMint ?? DEFAULT_OUTPUT);
-  const [buyLamports, setBuyLamports] = useState("50000");
+  /** Default 0.001 SOL = 1_000_000 lamports (must stay ≤ safety cap). */
+  const [buyLamports, setBuyLamports] = useState("1000000");
   const [sellRaw, setSellRaw] = useState("1000");
   const [slippageBps, setSlippageBps] = useState("100");
-  const [maxCap, setMaxCap] = useState(() => String(TRADER_ENV.defaultMaxInputRaw ?? "50000"));
+  const [maxCap, setMaxCap] = useState(() => String(TRADER_ENV.defaultMaxInputRaw ?? "5000000"));
   const [killSwitch, setKillSwitch] = useState(false);
   const [simulateOnly, setSimulateOnly] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -209,6 +211,23 @@ function Inner(): ReactElement {
           </button>
         </div>
       </div>
+
+      <SignalBotPanel
+        connection={connection}
+        operationalMode={TRADER_ENV.operationalMode}
+        envKillSwitch={TRADER_ENV.envKillSwitch}
+        rails={rails}
+        simulateOnly={simulateOnly}
+        willBroadcastOnChain={willBroadcastOnChain}
+        outputMint={outputMint}
+        buyLamportsStr={buyLamports}
+        sellRawStr={sellRaw}
+        slippageBpsStr={slippageBps}
+        append={append}
+        walletConnected={connected}
+        walletPublicKey={publicKey ?? null}
+        walletSignTransaction={signTransaction !== undefined ? async (tx) => signTransaction(tx) : undefined}
+      />
 
       <div className="panel">
         <div style={{ fontWeight: 600, marginBottom: 6 }}>Log</div>
