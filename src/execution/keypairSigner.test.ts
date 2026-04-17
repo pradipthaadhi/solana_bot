@@ -13,6 +13,9 @@ describe("createKeypairSigner", () => {
     const tx = new VersionedTransaction(msg);
     const sign = createKeypairSigner(kp);
     const out = await sign(tx);
-    expect(out.signatures[0]?.every((b) => b !== 0)).toBe(true);
+    const sig = out.signatures[0];
+    expect(sig?.byteLength).toBe(64);
+    // Ed25519 signatures may contain 0x00 bytes; only require "signed" vs default zero buffer.
+    expect(sig?.every((b) => b === 0)).toBe(false);
   });
 });

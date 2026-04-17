@@ -1,5 +1,19 @@
 import type { SafetyRails } from "./types.js";
 
+/** Stage 6 — block mainnet broadcast outside `MODE=live`. */
+export function assertOnChainBroadcastAllowed(rails: SafetyRails, willBroadcast: boolean): void {
+  if (!willBroadcast) {
+    return;
+  }
+  const mode = rails.operationalMode;
+  if (mode === undefined || mode === "live") {
+    return;
+  }
+  throw new Error(
+    `MODE_${mode.toUpperCase()}: on-chain broadcast is disabled. Set MODE=live (after explicit review) or use simulateOnly / broadcast:false.`,
+  );
+}
+
 export interface SafetyAssertionInput {
   rails: SafetyRails;
   /** Parsed `inAmount` from Jupiter quote (ExactIn). */
