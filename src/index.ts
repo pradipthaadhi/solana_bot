@@ -1,3 +1,4 @@
+export * from "./config/index.js";
 export * from "./execution/index.js";
 export * from "./data/geckoTerminalOhlcv.js";
 export * from "./agent/bars.js";
@@ -9,6 +10,7 @@ export * from "./indicators/timeUtc.js";
 export * from "./indicators/vwap.js";
 export * from "./indicators/vwma.js";
 export * from "./scope/stage0.js";
+export * from "./scope/stage8.js";
 export * from "./strategy/barIndicators.js";
 export * from "./strategy/candleSemantics.js";
 export * from "./strategy/crosses.js";
