@@ -24,6 +24,12 @@ export function loadDevKeypairFromEnv(env: NodeJS.ProcessEnv = process.env): Key
   if (env.SOL_BOT_HEADLESS_SIGNER !== "1") {
     throw new Error("Headless signer disabled: set SOL_BOT_HEADLESS_SIGNER=1 explicitly for Model B.");
   }
+  const signing = env.SIGNING_MODE?.trim().toLowerCase();
+  if (signing === "phantom_ui") {
+    throw new Error(
+      "SIGNING_MODE=phantom_ui conflicts with headless keypair loading. Use Model A (Phantom UI) or set SIGNING_MODE=headless_dev.",
+    );
+  }
   const raw = env.SOLANA_SECRET_KEY;
   if (!raw || raw.trim().length === 0) {
     throw new Error("Missing SOLANA_SECRET_KEY for headless signer.");

@@ -13,6 +13,17 @@ describe("loadDevKeypairFromEnv (Stage 5.2)", () => {
     ).toThrow(/Headless signer disabled/);
   });
 
+  it("rejects SIGNING_MODE=phantom_ui with headless flag", () => {
+    const kp = Keypair.generate();
+    expect(() =>
+      loadDevKeypairFromEnv({
+        SOL_BOT_HEADLESS_SIGNER: "1",
+        SIGNING_MODE: "phantom_ui",
+        SOLANA_SECRET_KEY: bs58.encode(kp.secretKey),
+      }),
+    ).toThrow(/phantom_ui/);
+  });
+
   it("loads base58 secret when flag set", () => {
     const kp = Keypair.generate();
     const out = loadDevKeypairFromEnv({
