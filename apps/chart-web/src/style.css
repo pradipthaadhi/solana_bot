@@ -79,6 +79,21 @@ button:disabled {
   margin-top: 4px;
 }
 
+.crosshair-hud {
+  min-height: 1.35em;
+  margin: 2px 0 10px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #b7bdc6;
+  font-variant-numeric: tabular-nums;
+  word-break: break-word;
+}
+
+.crosshair-hud:empty {
+  margin-bottom: 0;
+  min-height: 0;
+}
+
 #chart {
   width: 100%;
   height: 520px;
@@ -94,8 +109,9 @@ button:disabled {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  z-index: 50;
+  z-index: 2147483000;
   max-width: min(420px, 92vw);
+  pointer-events: none;
 }
 
 .toast {
@@ -104,6 +120,7 @@ button:disabled {
   padding: 10px 12px;
   border-radius: 10px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  pointer-events: auto;
 }
 
 .toast .t {
@@ -114,6 +131,8 @@ button:disabled {
 .toast .m {
   margin-top: 4px;
   font-weight: 600;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .banner {
@@ -167,4 +186,114 @@ button:disabled {
   opacity: 0.75;
   margin-top: 8px;
   line-height: 1.45;
+}
+
+.toolbar-link {
+  align-self: center;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #2962ff;
+  color: #8ab4ff;
+  text-decoration: none;
+  font-size: 13px;
+}
+
+.toolbar-link:hover {
+  background: #1b3fad22;
+}
+
+.signal-log {
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid #2b3139;
+}
+
+.signal-log-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.signal-log-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.signal-log-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.signal-log-hint {
+  margin-top: 0;
+  margin-bottom: 12px;
+}
+
+.table-scroll {
+  overflow-x: auto;
+  border: 1px solid #2b3139;
+  border-radius: 10px;
+  background: #12161c;
+}
+
+.positions-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.positions-table th,
+.positions-table td {
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 1px solid #2b3139;
+  vertical-align: top;
+}
+
+.positions-table th {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.8;
+  background: #0f1318;
+}
+
+.positions-table tr:last-child td {
+  border-bottom: none;
+}
+
+.positions-table .mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  word-break: break-all;
+  max-width: 220px;
+}
+
+.positions-table .reason-cell {
+  max-width: 420px;
+}
+
+.side-buy {
+  color: #26a69a;
+  font-weight: 700;
+}
+
+.side-sell {
+  color: #ef5350;
+  font-weight: 700;
+}
+
+.stage8-footer {
+  margin-top: 20px;
+  padding-top: 14px;
+  border-top: 1px solid #2b3139;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #9aa4af;
+  max-width: 72ch;
 }

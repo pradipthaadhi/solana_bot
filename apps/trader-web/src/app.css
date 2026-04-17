@@ -84,3 +84,13 @@ pre.log {
   line-height: 1.45;
   margin-bottom: 10px;
 }
+
+.hint {
+  color: #9aa4af;
+  line-height: 1.45;
+}
+
+.hint code {
+  font-size: 11px;
+  opacity: 0.95;
+}
