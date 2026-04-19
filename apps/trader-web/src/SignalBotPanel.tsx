@@ -304,7 +304,7 @@ export function SignalBotPanel(props: SignalBotPanelProps): ReactElement {
     } catch (e) {
       append(`[test ${side}] ERROR: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
-      setTestBusy(null);
+      setTestBusy(false);
     }
   };
 
@@ -414,18 +414,18 @@ export function SignalBotPanel(props: SignalBotPanelProps): ReactElement {
         <code>VITE_MODE</code> broadcast rules.
       </p>
       <div className="row">
-        <button type="button" className="action" disabled={testBusy !== null} onClick={() => void runTestLeg("buy")}>
+        <button type="button" className="action" disabled={testBusy} onClick={() => void runTestLeg("buy")}>
           Test BUY (SOL → mint)
         </button>
-        <button type="button" className="action danger" disabled={testBusy !== null} onClick={() => void runTestLeg("sell")}>
+        <button type="button" className="action danger" disabled={testBusy} onClick={() => void runTestLeg("sell")}>
           Test SELL (mint → SOL)
         </button>
       </div>
       <div className="row" style={{ marginTop: 8 }}>
-        <button type="button" className="action" disabled={testBusy !== null} onClick={() => void fireSyntheticSignal("entry")}>
+        <button type="button" className="action" disabled={testBusy} onClick={() => void fireSyntheticSignal("entry")}>
           Test SIGNAL_ENTRY → Jupiter BUY
         </button>
-        <button type="button" className="action danger" disabled={testBusy !== null} onClick={() => void fireSyntheticSignal("exit")}>
+        <button type="button" className="action danger" disabled={testBusy} onClick={() => void fireSyntheticSignal("exit")}>
           Test SIGNAL_EXIT → Jupiter SELL
         </button>
       </div>

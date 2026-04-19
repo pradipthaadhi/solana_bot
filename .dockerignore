@@ -1,0 +1,14 @@
+node_modules
+**/node_modules
+.git
+.gitignore
+dist
+**/.env
+**/.env.*
+!.env.example
+coverage
+.cursor
+*.md
+terminals
+.vscode
+apps/chart-web/positions.txt

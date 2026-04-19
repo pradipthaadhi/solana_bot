@@ -65,6 +65,7 @@ export default defineConfig({
     },
   },
   server: {
+    host: "0.0.0.0",
     proxy: {
       // Optional fallback if something must hit same-origin; chart-web uses direct HTTPS + CORS.
       "/gt-api": {

@@ -1,0 +1,27 @@
+# Staging: Vite dev servers (chart core + Phantom/Jupiter UI).
+# From repo root: docker compose -f docker/compose.staging.yaml up --build
+# From docker/:    docker compose -f compose.staging.yaml up --build
+
+name: sol-bot-staging
+
+services:
+  chart-core:
+    build:
+      context: ..
+      dockerfile: docker/chart-dev.Dockerfile
+    ports:
+      - "${CHART_HOST_PORT:-5173}:5173"
+    restart: unless-stopped
+
+  trader-web:
+    build:
+      context: ..
+      dockerfile: docker/trader-dev.Dockerfile
+    ports:
+      - "${TRADER_HOST_PORT:-5174}:5173"
+    environment:
+      NODE_ENV: development
+    env_file:
+      - path: ../apps/trader-web/.env
+        required: false
+    restart: unless-stopped
