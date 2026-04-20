@@ -1,6 +1,7 @@
 node_modules/
 dist/
 .env
+apps/chart-web/.env
 .env.*.local
 *.log
 .DS_Store

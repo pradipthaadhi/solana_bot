@@ -1,6 +1,7 @@
 import { Keypair, type Connection } from "@solana/web3.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createJupiterSignalExecutionAdapter } from "./jupiterExecutionAdapter.js";
+import { createKeypairSigner } from "./keypairSigner.js";
 import * as swapExecutor from "./swapExecutor.js";
 import { NATIVE_SOL_MINT } from "./types.js";
 
@@ -18,6 +19,7 @@ describe("createJupiterSignalExecutionAdapter (Stage 5)", () => {
     const adapter = createJupiterSignalExecutionAdapter({
       connection: {} as Connection,
       userPublicKeyBase58: kp.publicKey.toBase58(),
+      signTransaction: createKeypairSigner(kp),
       rails: { killSwitchEngaged: false, maxInputRaw: 10_000n },
       slippageBps: 50,
       targetMint: "TokenMint1111111111111111111111111111111111",
@@ -46,6 +48,43 @@ describe("createJupiterSignalExecutionAdapter (Stage 5)", () => {
           amount: 2_000n,
         }),
       }),
+    );
+  });
+
+  it("invokes onSwapComplete for entry and exit with leg labels", async () => {
+    vi.spyOn(swapExecutor, "executeJupiterSwap").mockResolvedValue({
+      quote: {},
+      simulation: { value: { err: null }, context: { slot: 1 } } as never,
+      signature: "sig111",
+    });
+    const kp = Keypair.generate();
+    const onSwapComplete = vi.fn();
+    const adapter = createJupiterSignalExecutionAdapter({
+      connection: {} as Connection,
+      userPublicKeyBase58: kp.publicKey.toBase58(),
+      signTransaction: createKeypairSigner(kp),
+      rails: { killSwitchEngaged: false, maxInputRaw: 10_000n },
+      slippageBps: 50,
+      targetMint: "TokenMint1111111111111111111111111111111111",
+      buySpendLamports: 1_000n,
+      sellTokenRaw: 2_000n,
+      simulateOnly: false,
+      onSwapComplete,
+    });
+
+    await adapter.onSignalEntry({ barIndex: 0, timeMs: 0, reason: "t" });
+    await adapter.onSignalExit({ barIndex: 1, timeMs: 1, reason: "t" });
+
+    expect(onSwapComplete).toHaveBeenCalledTimes(2);
+    expect(onSwapComplete).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ signature: "sig111" }),
+      "entry",
+    );
+    expect(onSwapComplete).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ signature: "sig111" }),
+      "exit",
     );
   });
 });

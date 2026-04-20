@@ -4,10 +4,14 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:direct-net": "env NO_PROXY=127.0.0.1,localhost,quote-api.jup.ag,api.jup.ag,api.geckoterminal.com -u HTTPS_PROXY -u https_proxy -u HTTP_PROXY -u http_proxy -u ALL_PROXY -u all_proxy vite",
     "build": "vite build",
-    "preview": "vite preview --host"
+    "preview": "vite preview --host",
+    "preview:direct-net": "env NO_PROXY=127.0.0.1,localhost,quote-api.jup.ag,api.jup.ag -u HTTPS_PROXY -u https_proxy -u HTTP_PROXY -u http_proxy -u ALL_PROXY -u all_proxy vite preview --host"
   },
   "dependencies": {
+    "@solana/web3.js": "^1.98.4",
+    "buffer": "^6.0.3",
     "lightweight-charts": "4.2.0"
   },
   "devDependencies": {

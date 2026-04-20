@@ -45,16 +45,9 @@ npm run chart:build
 - **Stage 1** — formal candle rules, crosses, config pins, FSM: `src/strategy/*`
 - **Stage 3** — VWAP (hlc3) + VWMA series: `src/indicators/*`
 - **Stage 4** — `SignalAgent` (fetch → indicators → FSM → JSON logs → execution hooks): `src/agent/signalAgent.ts`
-- **Stage 5** — Jupiter v6 swap pipeline + safety rails + Model B headless signer + Model A Phantom UI:
+- **Stage 5** — Jupiter v6 swap pipeline + safety rails + Model B headless signer; `SIGNING_MODE=phantom_ui` remains for alignment when you integrate Phantom in your own client:
   - Core: `src/execution/*` (`executeJupiterSwap`, `createJupiterSignalExecutionAdapter`, `loadDevKeypairFromEnv`, …)
-  - Phantom dashboard: `apps/trader-web` (install + `npm run trader:dev`)
-
-```bash
-npm run trader:install
-npm run trader:dev
-```
-
 - **Stage 6** — typed env config (`MODE`, `SIGNING_MODE`, CoinGecko keys, mints, RPC), `SafetyRails` builder, broadcast guard when `MODE≠live`, headless vs Phantom signing alignment: `src/config/botEnv.ts`, `docs/RUNBOOK_STAGE6.md`, `.env.example`.
-- **Stage 8** — risk taxonomy, compliance *reminders* (not legal advice), operator checklist, post-POC roadmap: `docs/STAGE8_RISK_AND_COMPLIANCE.md`, encoded one-liners in `src/scope/stage8.ts` (shared educational footer for chart + trader UIs).
+- **Stage 8** — risk taxonomy, compliance *reminders* (not legal advice), operator checklist, post-POC roadmap: `docs/STAGE8_RISK_AND_COMPLIANCE.md`, encoded one-liners in `src/scope/stage8.ts` (shared educational footer for chart-web).
 
 Full narrative spec: `docs/STANDALONE_TRADING_POC_STAGES.md`.

@@ -1,10 +1,28 @@
+import dns from "node:dns";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { defineConfig, type Plugin } from "vite";
+import { defineConfig, loadEnv, type Plugin, type ProxyOptions } from "vite";
+
+/** VMware / broken IPv6: prefer A records so `getaddrinfo` does not hang or fail on AAAA-only paths. */
+dns.setDefaultResultOrder("ipv4first");
 
 const botSrc = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../src");
 const chartRoot = path.dirname(fileURLToPath(import.meta.url));
+
+function jupiterProxyConfig(targetBase: string): Record<string, ProxyOptions> {
+  const target = targetBase.replace(/\/$/, "");
+  return {
+    "/jupiter-api": {
+      target,
+      changeOrigin: true,
+      secure: true,
+      rewrite: (p: string) => p.replace(/^\/jupiter-api/, "/v6"),
+      timeout: 120_000,
+      proxyTimeout: 120_000,
+    },
+  };
+}
 
 /** Dev-only: append/read `positions.txt` for BUY/SELL JSONL (static hosting has no server write). */
 function positionsFileApi(): Plugin {
@@ -57,24 +75,45 @@ function positionsFileApi(): Plugin {
   };
 }
 
-export default defineConfig({
-  plugins: [positionsFileApi()],
-  resolve: {
-    alias: {
-      "@bot": botSrc,
-    },
-  },
-  server: {
-    host: "0.0.0.0",
-    proxy: {
-      // Optional fallback if something must hit same-origin; chart-web uses direct HTTPS + CORS.
-      "/gt-api": {
-        target: "https://api.geckoterminal.com",
-        changeOrigin: true,
-        rewrite: (p) => p.replace(/^\/gt-api/, "/api/v2"),
-        timeout: 120_000,
-        proxyTimeout: 120_000,
+export default defineConfig(({ mode }) => {
+  const fileEnv = loadEnv(mode, chartRoot, "");
+  const jupiterTarget =
+    fileEnv.JUPITER_API_PROXY_TARGET?.trim() ||
+    process.env.JUPITER_API_PROXY_TARGET?.trim() ||
+    "https://quote-api.jup.ag";
+
+  const jupiter = jupiterProxyConfig(jupiterTarget);
+
+  return {
+    plugins: [positionsFileApi()],
+    resolve: {
+      alias: {
+        "@bot": botSrc,
+        buffer: "buffer",
       },
     },
-  },
+    optimizeDeps: {
+      include: ["buffer", "@solana/web3.js"],
+    },
+    server: {
+      host: "0.0.0.0",
+      proxy: {
+        ...jupiter,
+        // Optional fallback if something must hit same-origin; chart-web uses direct HTTPS + CORS.
+        "/gt-api": {
+          target: "https://api.geckoterminal.com",
+          changeOrigin: true,
+          rewrite: (p) => p.replace(/^\/gt-api/, "/api/v2"),
+          timeout: 120_000,
+          proxyTimeout: 120_000,
+        },
+      },
+    },
+    preview: {
+      host: "0.0.0.0",
+      proxy: {
+        ...jupiter,
+      },
+    },
+  };
 });

@@ -1,27 +1,24 @@
-# Staging: Vite dev servers (chart core + Phantom/Jupiter UI).
+# Staging: Vite dev server (chart core).
 # From repo root: docker compose -f docker/compose.staging.yaml up --build
 # From docker/:    docker compose -f compose.staging.yaml up --build
 
 name: sol-bot-staging
 
+# Public DNS — fixes Node/Vite proxy: getaddrinfo ENOTFOUND quote-api.jup.ag inside Docker.
+x-common-dns: &common_dns
+  dns:
+    - 8.8.8.8
+    - 1.1.1.1
+
 services:
   chart-core:
+    <<: *common_dns
     build:
       context: ..
       dockerfile: docker/chart-dev.Dockerfile
     ports:
       - "${CHART_HOST_PORT:-5173}:5173"
-    restart: unless-stopped
-
-  trader-web:
-    build:
-      context: ..
-      dockerfile: docker/trader-dev.Dockerfile
-    ports:
-      - "${TRADER_HOST_PORT:-5174}:5173"
     environment:
-      NODE_ENV: development
-    env_file:
-      - path: ../apps/trader-web/.env
-        required: false
+      NO_PROXY: quote-api.jup.ag,.jup.ag,127.0.0.1,localhost,api.mainnet-beta.solana.com,api.geckoterminal.com
+      no_proxy: quote-api.jup.ag,.jup.ag,127.0.0.1,localhost,api.mainnet-beta.solana.com,api.geckoterminal.com
     restart: unless-stopped

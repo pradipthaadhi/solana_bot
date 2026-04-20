@@ -217,7 +217,7 @@ Phantom is a **wallet app** that signs transactions presented by a **dApp** (bro
 
 - Use a signing service or hardware wallet integrations — overkill for first POC unless you already have it.
 
-**POC recommendation:** Implement **Model A** to honor “Phantom” literally, and keep **Model B** behind a `DEV_HEADLESS_SIGNER=1` flag for automated testing.
+**POC recommendation:** This repository ships **Model B** headless execution (`SOL_BOT_HEADLESS_SIGNER`) plus notify-only chart-web. For true Phantom signing, host your own **Model A** wallet-adapter UI that calls `executeJupiterSwap` with the user’s wallet.
 
 ### 5.4 Swap mechanics (where buys/sells actually happen)
 
@@ -236,7 +236,7 @@ Define the **exact venue** (Jupiter aggregator, Raydium, PumpSwap-compatible rou
 
 ### 5.6 Implementation status (repo)
 
-- **Model A (Phantom):** `apps/trader-web` — Vite + React + `@solana/wallet-adapter-*` + Phantom; calls `executeJupiterSwap` from `src/execution/swapExecutor.ts` (simulate-first; on-chain send only when `VITE_MODE=live` **and** “Simulate only” is unchecked; `paper`/`replay` use sign-only with `broadcast: false`).
+- **Model A (Phantom):** not bundled — integrate `@solana/wallet-adapter-*` + Phantom in your own Vite/React app; call `executeJupiterSwap` from `src/execution/swapExecutor.ts` with `broadcast: true` only when `MODE=live` and your UI intentionally allows on-chain send.
 - **Model B (headless):** `src/execution/devKeypair.ts` + `src/execution/keypairSigner.ts` — gated by `SOL_BOT_HEADLESS_SIGNER=1` and `SOLANA_SECRET_KEY` (see `.env.example`).
 - **Venue:** Jupiter **v6** quote + swap (`https://quote-api.jup.ag/v6`) — `src/execution/jupiterClient.ts`, `swapExecutor.ts`.
 - **FSM bridge:** `src/execution/jupiterExecutionAdapter.ts` — maps `SIGNAL_ENTRY` → SOL→`targetMint`, `SIGNAL_EXIT` → `targetMint`→SOL (amounts are explicit config on the adapter).
@@ -273,7 +273,7 @@ Define the **exact venue** (Jupiter aggregator, Raydium, PumpSwap-compatible rou
 - **`src/execution/devKeypair.ts`** — rejects `SIGNING_MODE=phantom_ui` when loading a headless keypair.
 - **CLI:** `npm run config:print` (tsx) prints redacted JSON.
 - **Runbook:** `docs/RUNBOOK_STAGE6.md`
-- **Trader web env:** `apps/trader-web/src/traderEnv.ts` + `apps/trader-web/.env.example` — `VITE_MODE` / kill switch / RPC / mint defaults (Stage 6 parity in the browser).
+- **Browser env (if you add a Model A UI):** mirror Stage 6 keys via your bundler’s env mechanism (e.g. Vite `import.meta.env` with a `VITE_` prefix); keep parity with `src/config/botEnv.ts` for mode, kill switch, and caps.
 - **Headless signal → Jupiter:** `npm run signal:jupiter` — `src/cli/runHeadlessSignalJupiter.ts`, `src/signalExec/*`, `createDedupingExecutionAdapter` in `src/agent/executionAdapter.ts` (keys in Node only; chart remains notify-only). Runbook: `docs/RUNBOOK_SIGNAL_EXEC.md`.
 - **Tests:** `src/config/botEnv.test.ts`, extended `safetyRails` / `swapExecutor` / `devKeypair` tests.
 
@@ -297,7 +297,7 @@ Define the **exact venue** (Jupiter aggregator, Raydium, PumpSwap-compatible rou
 
 - **Devnet** dry run first.  
 - **Mainnet** micro-buy only after simulation passes and balances are verified.
-- **Implemented (opt-in, read-only RPC):** `src/verification/stage7Chain.test.ts` when `SOL_BOT_STAGE7_CHAIN_TEST=1` (see `.env.example`). Swaps remain manual / trader-web / headless flows per Stage 5–6.
+- **Implemented (opt-in, read-only RPC):** `src/verification/stage7Chain.test.ts` when `SOL_BOT_STAGE7_CHAIN_TEST=1` (see `.env.example`). Swaps remain manual / headless flows per Stage 5–6.
 
 ---
 

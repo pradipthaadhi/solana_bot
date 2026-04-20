@@ -297,3 +297,124 @@ button:disabled {
   color: #9aa4af;
   max-width: 72ch;
 }
+
+.wallet-panel-wrap {
+  margin-bottom: 14px;
+}
+
+.wallet-panel {
+  border: 1px solid #2b3139;
+  border-radius: 12px;
+  padding: 14px 16px;
+  background: linear-gradient(165deg, #141a22 0%, #0f1318 100%);
+}
+
+.wallet-panel-head {
+  margin-bottom: 10px;
+}
+
+.wallet-panel-title {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin: 0 0 6px;
+}
+
+.wallet-panel-sub {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.wallet-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.wallet-row-check {
+  margin-bottom: 8px;
+}
+
+.wallet-check-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.wallet-status {
+  font-size: 13px;
+  color: #9aa4af;
+  flex: 1 1 160px;
+}
+
+.wallet-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px 14px;
+  margin-bottom: 10px;
+}
+
+.wallet-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.wallet-field-label {
+  color: #9aa4af;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  font-size: 10px;
+}
+
+.wallet-field input[type="text"],
+.wallet-field input[type="number"] {
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #2b3139;
+  background: #181a20;
+  color: inherit;
+  width: 100%;
+}
+
+.wallet-policy {
+  margin-bottom: 8px;
+}
+
+.wallet-policy-pill {
+  display: inline-block;
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid #2b3139;
+}
+
+.wallet-policy-live {
+  border-color: #8a5c2b;
+  color: #ffd7a8;
+  background: #2a1f14;
+}
+
+.wallet-policy-paper {
+  color: #8b98a5;
+}
+
+.wallet-out {
+  font-size: 11px;
+  line-height: 1.45;
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid #2b3139;
+  background: #0b0e11;
+  color: #c8cdd3;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 180px;
+  overflow: auto;
+}

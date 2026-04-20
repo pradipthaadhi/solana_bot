@@ -2,7 +2,7 @@
 
 This path runs **`SignalAgent`** on **GeckoTerminal 1m OHLCV** (same pool id as chart-web) and, on tail **`SIGNAL_ENTRY` / `SIGNAL_EXIT`**, calls **`executeJupiterSwap`** via **`createJupiterSignalExecutionAdapter`**.
 
-- **Private keys run in Node only** (`SOLANA_SECRET_KEY` + `SOL_BOT_HEADLESS_SIGNER=1`). Do **not** put secrets in `apps/chart-web` or `apps/trader-web`.
+- **Private keys run in Node only** (`SOLANA_SECRET_KEY` + `SOL_BOT_HEADLESS_SIGNER=1`). Do **not** put secrets in `apps/chart-web`.
 - **Deduping** (`createDedupingExecutionAdapter`) prevents the same signal from firing a swap every poll while it stays inside the tail window.
 - **Chart-web stays notify-only**; use this runner for automated legs.
 

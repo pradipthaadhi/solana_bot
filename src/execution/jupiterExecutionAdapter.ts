@@ -4,7 +4,7 @@
 
 import type { Connection } from "@solana/web3.js";
 import type { ExecutionAdapter, ExecutionSignalPayload } from "../agent/executionAdapter.js";
-import { executeJupiterSwap } from "./swapExecutor.js";
+import { executeJupiterSwap, type ExecuteJupiterSwapResult } from "./swapExecutor.js";
 import type { JupiterQuoteParams, SafetyRails, SignVersionedTransaction } from "./types.js";
 import { NATIVE_SOL_MINT } from "./types.js";
 
@@ -21,6 +21,8 @@ export interface JupiterSignalExecutionAdapterConfig {
   /** Raw token amount to sell on each SELL signal (ExactIn). */
   sellTokenRaw: bigint;
   simulateOnly: boolean;
+  /** Called after each successful `executeJupiterSwap` (simulation or broadcast). */
+  onSwapComplete?: (result: ExecuteJupiterSwapResult, leg: "entry" | "exit") => void | Promise<void>;
   jupiterBaseUrl?: string;
   fetchFn?: typeof fetch;
 }
@@ -43,10 +45,11 @@ export function createJupiterSignalExecutionAdapter(cfg: JupiterSignalExecutionA
         amount: cfg.buySpendLamports,
         slippageBps: cfg.slippageBps,
       };
-      await executeJupiterSwap({
+      const result = await executeJupiterSwap({
         ...execOpts,
         quoteParams,
       });
+      await Promise.resolve(cfg.onSwapComplete?.(result, "entry"));
     },
     async onSignalExit(_p: ExecutionSignalPayload) {
       const quoteParams: JupiterQuoteParams = {
@@ -55,10 +58,11 @@ export function createJupiterSignalExecutionAdapter(cfg: JupiterSignalExecutionA
         amount: cfg.sellTokenRaw,
         slippageBps: cfg.slippageBps,
       };
-      await executeJupiterSwap({
+      const result = await executeJupiterSwap({
         ...execOpts,
         quoteParams,
       });
+      await Promise.resolve(cfg.onSwapComplete?.(result, "exit"));
     },
   };
 }

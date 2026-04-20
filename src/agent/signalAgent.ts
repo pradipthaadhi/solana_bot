@@ -189,6 +189,11 @@ export interface PollingHandle {
   stop(): void;
 }
 
+export interface SignalPollingOptions {
+  /** Called after each `runTick` (success or failure). */
+  onTick?: (result: AgentTickResult) => void;
+}
+
 /**
  * Fixed-interval polling with overlap protection (Stage 4.2 baseline).
  */
@@ -196,6 +201,7 @@ export function startSignalPolling(
   agent: SignalAgent,
   fetchBars: () => Promise<readonly Ohlcv[] | Ohlcv[]>,
   intervalMs: number,
+  options?: SignalPollingOptions,
 ): PollingHandle {
   let stopped = false;
   let busy = false;
@@ -206,7 +212,8 @@ export function startSignalPolling(
     busy = true;
     void (async () => {
       try {
-        await agent.runTick(fetchBars);
+        const result = await agent.runTick(fetchBars);
+        options?.onTick?.(result);
       } finally {
         busy = false;
       }

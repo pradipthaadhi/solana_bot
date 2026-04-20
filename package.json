@@ -13,10 +13,8 @@
     "test:watch": "vitest",
     "chart:install": "npm --prefix apps/chart-web install",
     "chart:dev": "npm --prefix apps/chart-web run dev",
-    "chart:build": "npm --prefix apps/chart-web run build",
-    "trader:install": "npm --prefix apps/trader-web install",
-    "trader:dev": "npm --prefix apps/trader-web run dev",
-    "trader:build": "npm --prefix apps/trader-web run build"
+    "chart:dev:direct-net": "npm --prefix apps/chart-web run dev:direct-net",
+    "chart:build": "npm --prefix apps/chart-web run build"
   },
   "engines": {
     "node": ">=20"

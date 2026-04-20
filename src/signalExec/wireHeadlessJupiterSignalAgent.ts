@@ -7,16 +7,17 @@ import { createDedupingExecutionAdapter } from "../agent/executionAdapter.js";
 import type { BotEnv } from "../config/botEnv.js";
 import { buildSafetyRailsFromBotEnv } from "../config/botEnv.js";
 import { createJupiterSignalExecutionAdapter } from "../execution/jupiterExecutionAdapter.js";
+import type { ExecuteJupiterSwapResult } from "../execution/swapExecutor.js";
 import { createKeypairSigner } from "../execution/keypairSigner.js";
 import type { Connection, Keypair } from "@solana/web3.js";
-import type { Ohlcv } from "../strategy/candleSemantics.js";
 import { DEFAULT_STRATEGY_CONFIG, type StrategyConfig } from "../strategy/strategyConfig.js";
 import type { HeadlessSignalExecConfig } from "./headlessSignalEnv.js";
 
 export interface HeadlessJupiterAgentDeps {
   connection: Connection;
   keypair: Keypair;
-  fetchBars: () => Promise<readonly Ohlcv[] | Ohlcv[]>;
+  /** Optional hook after each Jupiter leg (logging, metrics). */
+  onSwapComplete?: (result: ExecuteJupiterSwapResult, leg: "entry" | "exit") => void | Promise<void>;
   strategy?: StrategyConfig;
   /** Override indicator pipeline (tests / custom series). */
   computeIndicators?: ComputeIndicatorsFn;
@@ -67,6 +68,7 @@ export function createHeadlessJupiterSignalAgent(
     buySpendLamports: exec.buySpendLamports,
     sellTokenRaw: exec.sellTokenRaw,
     simulateOnly: exec.simulateOnly,
+    ...(deps.onSwapComplete !== undefined ? { onSwapComplete: deps.onSwapComplete } : {}),
   });
   const execution = createDedupingExecutionAdapter(jupiter);
 

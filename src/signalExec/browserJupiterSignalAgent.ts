@@ -22,6 +22,7 @@ export interface BrowserJupiterSignalAgentConfig {
   buySpendLamports: bigint;
   sellTokenRaw: bigint;
   simulateOnly: boolean;
+  jupiterBaseUrl?: string;
 }
 
 export interface BrowserJupiterAgentDeps {
@@ -77,6 +78,7 @@ export function createBrowserJupiterSignalAgent(
     buySpendLamports: cfg.buySpendLamports,
     sellTokenRaw: cfg.sellTokenRaw,
     simulateOnly: cfg.simulateOnly,
+    ...(cfg.jupiterBaseUrl !== undefined ? { jupiterBaseUrl: cfg.jupiterBaseUrl } : {}),
   });
   const execution = createDedupingExecutionAdapter(jupiter);
 

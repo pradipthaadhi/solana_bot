@@ -5,24 +5,20 @@
 
 name: sol-bot-production
 
+x-common-dns: &common_dns
+  dns:
+    - 8.8.8.8
+    - 1.1.1.1
+
 services:
   chart-core:
+    <<: *common_dns
     build:
       context: ..
       dockerfile: docker/chart-dev.Dockerfile
     ports:
       - "${CHART_HOST_PORT:-8080}:5173"
-    restart: always
-
-  trader-web:
-    build:
-      context: ..
-      dockerfile: docker/trader-dev.Dockerfile
-    ports:
-      - "${TRADER_HOST_PORT:-8081}:5173"
     environment:
-      NODE_ENV: production
-    env_file:
-      - path: ../apps/trader-web/.env
-        required: false
+      NO_PROXY: quote-api.jup.ag,.jup.ag,127.0.0.1,localhost,api.mainnet-beta.solana.com,api.geckoterminal.com
+      no_proxy: quote-api.jup.ag,.jup.ag,127.0.0.1,localhost,api.mainnet-beta.solana.com,api.geckoterminal.com
     restart: always

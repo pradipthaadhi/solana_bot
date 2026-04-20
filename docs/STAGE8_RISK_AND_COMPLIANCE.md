@@ -57,10 +57,10 @@ If TradingView, an exchange, and GeckoTerminal disagree, **all three can be inte
 | Risk | Notes | Repo touchpoints |
 |------|--------|------------------|
 | Hot wallet / key exposure | Headless signing is dangerous at scale. | `src/execution/devKeypair.ts`, `SIGNING_MODE` |
-| Wrong network or mint | User error → lost funds or stuck tokens. | `botEnv` / `traderEnv`, mint fields |
+| Wrong network or mint | User error → lost funds or stuck tokens. | `botEnv`, mint fields |
 | RPC abuse or failure | Public RPCs rate-limit; sends fail under load. | `assertRpcHealthy`, paid RPC in prod |
 | Kill switch forgotten | Trades continue when they should not. | `SOL_BOT_KILL_SWITCH`, UI checkbox |
-| `MODE` mismatch | Accidental “live” broadcast. | `MODE` / `VITE_MODE`, runbook |
+| `MODE` mismatch | Accidental “live” broadcast. | `MODE`, runbook |
 
 ---
 

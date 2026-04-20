@@ -64,7 +64,6 @@ describe("createHeadlessJupiterSignalAgent", () => {
     const agent = createHeadlessJupiterSignalAgent(bot, exec, {
       connection: conn as never,
       keypair: kp,
-      fetchBars: async () => bars,
       strategy: DEFAULT_STRATEGY_CONFIG,
       computeIndicators: (barsIn) => {
         expect(barsIn.length).toBe(fixtureIndicators.length);

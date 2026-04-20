@@ -4,7 +4,7 @@
  * @see docs/STANDALONE_TRADING_POC_STAGES.md §8
  */
 
-/** Short copy for chart / trader footers (plain text; keep in sync with user-visible disclaimers). */
+/** Short copy for chart-web footers (plain text; keep in sync with user-visible disclaimers). */
 export const STAGE8_EDUCATIONAL_FOOTER =
   "Educational proof-of-concept only — not investment, legal, or tax advice. Past or simulated signals do not predict future results. You can lose all capital used in experiments.";
 

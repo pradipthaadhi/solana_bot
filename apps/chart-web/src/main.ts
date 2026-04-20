@@ -1,3 +1,4 @@
+import "./polyfills.js";
 import "./style.css";
 import {
   ColorType,
@@ -34,6 +35,7 @@ import {
   loadLocalPositions,
   syncPositionsFromServer,
 } from "./positionsLog.js";
+import { mountWalletTrading } from "./walletTrading.js";
 
 /** Recent bars considered for ENTRY/EXIT hooks + toasts (TWO_GREEN entry often completes on lastIdx-1). */
 const EXEC_SIGNAL_TAIL_LOOKBACK = 3;
@@ -246,8 +248,10 @@ function mount(): void {
           placeholder="Solana pool address (GeckoTerminal pool id)" />
         <button id="btn-load" class="primary" type="button">Load</button>
         <button id="btn-notify" type="button">Enable notifications</button>
+        <a href="#wallet-panel" class="toolbar-link">Phantom swaps</a>
         <a href="#signal-log" class="toolbar-link">Signal history</a>
       </div>
+      <section id="wallet-panel" class="wallet-panel-wrap"></section>
       <div id="pair" style="font-weight:700;margin:6px 0 2px"></div>
       <div id="subpair" class="hint" style="margin-top:0;margin-bottom:8px"></div>
       <div class="metrics">
@@ -266,7 +270,7 @@ function mount(): void {
         1m OHLCV from GeckoTerminal (public beta). A <b>demo pool</b> loads automatically so the chart is visible; paste your own pool id and click <b>Load</b>.
         Chart refreshes every <b>60s</b> and recomputes VWAP + VWMA 3/9/18 on the <b>merged</b> in-memory series (latest GeckoTerminal page plus any older pages you load). The default view is the <b>latest ~2 hours</b> of 1m bars; <b>pan left</b> near the left edge to fetch older candles via GeckoTerminal <code>before_timestamp</code>. Move the mouse over the chart to update the metrics and the OHLC line for that bar. The right edge stays pinned to the newest candle (no empty margin past the last bar).
         If GeckoTerminal fails after a <b>Wi‑Fi / VPN / proxy</b> hiccup, the client <b>retries with backoff</b>; press <b>Load</b> after the network stabilizes. Silent refresh will not spam a red error over your chart.
-        <b>In-app toasts</b> (bottom-right) for signals; <b>BUY/SELL</b> also append to <code>positions.txt</code> (JSON Lines: dev server file + browser localStorage). Use <b>Enable notifications</b> for OS alerts. <b>No Solana transactions</b>.
+        <b>In-app toasts</b> (bottom-right) for signals; <b>BUY/SELL</b> also append to <code>positions.txt</code> (JSON Lines: dev server file + browser localStorage). Use <b>Enable notifications</b> for OS alerts. <b>On-chain swaps</b> are optional via the <a href="#wallet-panel">Phantom + Jupiter</a> panel (sign in Phantom).
       </div>
       <section id="signal-log" class="signal-log">
         <div class="signal-log-head">
@@ -295,6 +299,11 @@ function mount(): void {
       </section>
       <footer class="stage8-footer" role="note">${STAGE8_EDUCATIONAL_FOOTER}</footer>
   `;
+
+  const walletHost = document.getElementById("wallet-panel");
+  if (walletHost) {
+    mountWalletTrading(walletHost);
+  }
 
   const renderPositionsTableBody = (): void => {
     const tbody = document.getElementById("positions-tbody");

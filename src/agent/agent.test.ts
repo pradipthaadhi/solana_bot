@@ -226,4 +226,23 @@ describe("startSignalPolling (Stage 4.2)", () => {
     vi.useRealTimers();
     expect(calls).toBeGreaterThanOrEqual(1);
   });
+
+  it("invokes onTick with tick result", async () => {
+    vi.useFakeTimers();
+    const bars: Ohlcv[] = [bar(1, 2, 1, 1, 1_000)];
+    const agent = new SignalAgent({ strategy: DEFAULT_STRATEGY_CONFIG, log: () => {} });
+    const onTick = vi.fn();
+    const handle = startSignalPolling(
+      agent,
+      async () => bars,
+      25,
+      { onTick },
+    );
+    await vi.advanceTimersByTimeAsync(30);
+    handle.stop();
+    vi.useRealTimers();
+    expect(onTick).toHaveBeenCalled();
+    const arg = onTick.mock.calls[0]?.[0];
+    expect(arg).toMatchObject({ ok: true });
+  });
 });
