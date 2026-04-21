@@ -32,6 +32,8 @@ npm run chart:dev
 
 Then open the printed URL. A **demo Raydium SOL/USDC pool** loads automatically so the chart is not blank; you can paste any **Solana pool address** (GeckoTerminal OHLCV pool id) and click **Load**. Optional: `http://localhost:5173/?pool=<POOL_ADDRESS>` to skip the demo.
 
+For **Phantom + Jupiter** simulation and sends, set **`VITE_RPC_URL`** in `apps/chart-web/.env` to a **private** Solana HTTPS RPC (e.g. [Alchemy Solana](https://www.alchemy.com/solana) — see [pricing](https://www.alchemy.com/pricing)); the public `api.mainnet-beta.solana.com` endpoint often returns **HTTP 403** from the browser.
+
 Production build output is written to `apps/chart-web/dist/`:
 
 ```bash
@@ -45,7 +47,7 @@ npm run chart:build
 - **Stage 1** — formal candle rules, crosses, config pins, FSM: `src/strategy/*`
 - **Stage 3** — VWAP (hlc3) + VWMA series: `src/indicators/*`
 - **Stage 4** — `SignalAgent` (fetch → indicators → FSM → JSON logs → execution hooks): `src/agent/signalAgent.ts`
-- **Stage 5** — Jupiter v6 swap pipeline + safety rails + Model B headless signer; `SIGNING_MODE=phantom_ui` remains for alignment when you integrate Phantom in your own client:
+- **Stage 5** — Jupiter swap pipeline (quote/swap API) + safety rails + Model B headless signer; `SIGNING_MODE=phantom_ui` remains for alignment when you integrate Phantom in your own client:
   - Core: `src/execution/*` (`executeJupiterSwap`, `createJupiterSignalExecutionAdapter`, `loadDevKeypairFromEnv`, …)
 - **Stage 6** — typed env config (`MODE`, `SIGNING_MODE`, CoinGecko keys, mints, RPC), `SafetyRails` builder, broadcast guard when `MODE≠live`, headless vs Phantom signing alignment: `src/config/botEnv.ts`, `docs/RUNBOOK_STAGE6.md`, `.env.example`.
 - **Stage 8** — risk taxonomy, compliance *reminders* (not legal advice), operator checklist, post-POC roadmap: `docs/STAGE8_RISK_AND_COMPLIANCE.md`, encoded one-liners in `src/scope/stage8.ts` (shared educational footer for chart-web).
