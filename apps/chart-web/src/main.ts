@@ -279,12 +279,7 @@ async function mount(): Promise<void> {
           </div>
         </div>
       </div>
-      <div class="hint">
-        1m OHLCV from GeckoTerminal (public beta). A <b>demo pool</b> loads automatically so the chart is visible; paste your own pool id and click <b>Load</b>.
-        Chart refreshes every <b>60s</b> and recomputes VWAP + VWMA 3/9/18 on the <b>merged</b> in-memory series (latest GeckoTerminal page plus any older pages you load). The default view is the <b>latest ~2 hours</b> of 1m bars; <b>pan left</b> near the left edge to fetch older candles via GeckoTerminal <code>before_timestamp</code>. Move the mouse over the chart to update the metrics and the OHLC line for that bar. The right edge stays pinned to the newest candle (no empty margin past the last bar).
-        If GeckoTerminal fails after a <b>Wi‑Fi / VPN / proxy</b> hiccup, the client <b>retries with backoff</b>; press <b>Load</b> after the network stabilizes. Silent refresh will not spam a red error over your chart.
-        After you unlock the desk with a <b>session private key</b>, <b>BUY/SELL signals</b> on recent bars trigger <b>automated Jupiter swaps</b> from that wallet when <code>VITE_MODE=live</code> (see signal log columns <b>Tx</b> / <b>Tx detail</b>). Manual size/slippage for auto-legs: <code>VITE_SIGNAL_BUY_LAMPORTS</code>, <code>VITE_SIGNAL_SELL_TOKEN_RAW</code>, <code>VITE_SIGNAL_SLIPPAGE_BPS</code>. <b>In-app toasts</b> fire on each signal; rows append to <code>positions.txt</code> in dev. Use <b>Alerts</b> for OS notifications. The <a href="#wallet-panel">Jupiter</a> panel still supports manual Buy/Sell (Phantom or paste key).
-      </div>
+     
       <section id="signal-log" class="signal-log">
         <div class="signal-log-head">
           <h2 class="signal-log-title">Signal history</h2>
