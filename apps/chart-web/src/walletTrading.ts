@@ -1,12 +1,23 @@
 /**
  * Phantom (browser) → Jupiter BUY/SELL using shared `executeJupiterSwap` (Model A).
+ * BUY can auto-sign with a pasted secret key (hot wallet — browser risk); SELL still uses Phantom.
  */
 
-import { Connection, PublicKey, VersionedTransaction } from "@solana/web3.js";
+import { Connection, Keypair, PublicKey, VersionedTransaction } from "@solana/web3.js";
+import { createKeypairSigner } from "@bot/execution/keypairSigner.js";
 import { executeJupiterSwap } from "@bot/execution/swapExecutor.js";
-import type { OperationalMode } from "@bot/scope/stage0.js";
 import { NATIVE_SOL_MINT } from "@bot/execution/types.js";
-import { chartToastError, chartToastSwapDone } from "./chartToaster.js";
+import {
+  chartToastError,
+  chartToastInfo,
+  chartToastSwapDone,
+  chartToastWalletAccountSwitched,
+  chartToastWalletConnected,
+  chartToastWalletConnectFailed,
+} from "./chartToaster.js";
+import { readDeskEnv } from "./chartWebEnv.js";
+import { resolveJupiterApiBaseUrl } from "./jupiterApiBaseUrl.js";
+import { parseSecretKeyInput } from "./secretKeyParse.js";
 
 type PhantomLike = {
   isPhantom?: boolean;
@@ -15,6 +26,85 @@ type PhantomLike = {
   signTransaction: (tx: VersionedTransaction) => Promise<VersionedTransaction>;
   publicKey: PublicKey | null;
 };
+
+function readPhantomAccounts(p: PhantomLike, primary: PublicKey): PublicKey[] {
+  const out: PublicKey[] = [];
+  const seen = new Set<string>();
+  const push = (k: PublicKey): void => {
+    const s = k.toBase58();
+    if (seen.has(s)) {
+      return;
+    }
+    seen.add(s);
+    out.push(k);
+  };
+  push(primary);
+
+  const raw = p as unknown as { accounts?: unknown };
+  if (!Array.isArray(raw.accounts)) {
+    return out;
+  }
+  for (const item of raw.accounts) {
+    try {
+      if (item instanceof PublicKey) {
+        push(item);
+      } else if (typeof item === "string") {
+        push(new PublicKey(item));
+      } else if (item && typeof item === "object") {
+        if ("address" in item) {
+          const a = (item as { address: unknown }).address;
+          if (typeof a === "string") {
+            push(new PublicKey(a));
+          } else if (a instanceof Uint8Array) {
+            push(new PublicKey(a));
+          }
+        } else if ("publicKey" in item) {
+          const pk = (item as { publicKey: unknown }).publicKey;
+          if (pk instanceof PublicKey) {
+            push(pk);
+          } else if (typeof pk === "string") {
+            push(new PublicKey(pk));
+          }
+        }
+      }
+    } catch {
+      /* skip malformed */
+    }
+  }
+  return out.length > 0 ? out : [primary];
+}
+
+function attachPhantomAccountChanged(
+  p: PhantomLike,
+  onChange: (pk: PublicKey | null) => void,
+): (() => void) | undefined {
+  const bridge = p as unknown as {
+    on?: (event: string, fn: (a: unknown) => void) => void;
+    removeListener?: (event: string, fn: (a: unknown) => void) => void;
+  };
+  if (typeof bridge.on !== "function") {
+    return undefined;
+  }
+  const handler = (pubkey: unknown): void => {
+    if (pubkey == null) {
+      onChange(null);
+      return;
+    }
+    if (pubkey instanceof PublicKey) {
+      onChange(pubkey);
+      return;
+    }
+    try {
+      onChange(new PublicKey(pubkey as string));
+    } catch {
+      onChange(null);
+    }
+  };
+  bridge.on("accountChanged", handler);
+  return () => {
+    bridge.removeListener?.("accountChanged", handler);
+  };
+}
 
 async function readWalletSplTokenBalanceRaw(connection: Connection, owner: PublicKey, mintBase58: string): Promise<bigint> {
   const mint = new PublicKey(mintBase58);
@@ -44,76 +134,9 @@ function getPhantom(): PhantomLike | null {
   return null;
 }
 
-/** Canonical public Jupiter Swap API v1 root (for comparing env overrides). */
-const PUBLIC_JUPITER_SWAP_V1_BASE = "https://api.jup.ag/swap/v1";
-
-function normalizeApiBaseUrl(s: string): string {
-  const t = s.trim().replace(/\/$/, "");
-  try {
-    const u = new URL(t);
-    return `${u.protocol}//${u.host}${u.pathname}`.replace(/\/$/, "").toLowerCase();
-  } catch {
-    return t.toLowerCase();
-  }
-}
-
-/**
- * In Vite dev/preview (localhost or common private LAN IPs), call same-origin `/jupiter-api`
- * so the browser does not open a direct HTTPS tunnel to `api.jup.ag` (see `vite.config.ts`).
- * That avoids `net::ERR_TUNNEL_CONNECTION_FAILED` when Chrome/system proxy breaks external HTTPS.
- *
- * If `VITE_JUPITER_API_BASE` is set to the same public URL during local dev, it is ignored here so
- * `.env` copy-paste does not undo the proxy (direct browser → Jupiter often fails behind VPN/proxy).
- */
-function resolveJupiterApiBaseUrl(): string {
-  if (typeof window === "undefined" || !window.location?.origin?.startsWith("http")) {
-    const override = import.meta.env.VITE_JUPITER_API_BASE?.trim();
-    if (override && override.length > 0) {
-      return override.replace(/\/$/, "");
-    }
-    return PUBLIC_JUPITER_SWAP_V1_BASE;
-  }
-  const o = window.location.origin;
-  const useLocalProxy =
-    import.meta.env.DEV ||
-    /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(o) ||
-    /^https?:\/\/192\.168\.\d{1,3}\.\d{1,3}(:\d+)?$/i.test(o) ||
-    /^https?:\/\/10\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d+)?$/i.test(o);
-
-  const overrideRaw = import.meta.env.VITE_JUPITER_API_BASE?.trim();
-  if (overrideRaw && overrideRaw.length > 0) {
-    const override = overrideRaw.replace(/\/$/, "");
-    const isPublicSameAsDefault =
-      normalizeApiBaseUrl(override) === normalizeApiBaseUrl(PUBLIC_JUPITER_SWAP_V1_BASE);
-    if (import.meta.env.DEV && useLocalProxy && isPublicSameAsDefault) {
-      return `${o}/jupiter-api`;
-    }
-    return override;
-  }
-
-  if (useLocalProxy) {
-    return `${o}/jupiter-api`;
-  }
-  return PUBLIC_JUPITER_SWAP_V1_BASE;
-}
-
-function readEnv(): {
-  rpcUrl: string;
-  defaultTokenMint: string;
-  maxInputRaw: bigint;
-  mode: OperationalMode;
-  killSwitch: boolean;
-} {
-  const modeRaw = (import.meta.env.VITE_MODE ?? "paper").trim().toLowerCase();
-  const mode: OperationalMode =
-    modeRaw === "live" || modeRaw === "replay" || modeRaw === "paper" ? modeRaw : "paper";
-  return {
-    rpcUrl: (import.meta.env.VITE_RPC_URL ?? "https://api.mainnet-beta.solana.com").trim(),
-    defaultTokenMint: (import.meta.env.VITE_TOKEN_MINT ?? "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v").trim(),
-    maxInputRaw: BigInt(import.meta.env.VITE_SOL_BOT_MAX_INPUT_RAW ?? "5000000"),
-    mode,
-    killSwitch: import.meta.env.VITE_SOL_BOT_KILL_SWITCH === "1",
-  };
+/** Phantom injects `window.solana` only in a [secure context](https://developer.mozilla.org/en-US/docs/Web/Security/Secure_Contexts) (https://, or http://localhost / 127.0.0.1). Plain http:// to a public IP is not secure — wallet connect will not work. */
+function isBrowserWalletSecureContext(): boolean {
+  return typeof window !== "undefined" && window.isSecureContext;
 }
 
 function el<K extends keyof HTMLElementTagNameMap>(parent: HTMLElement, tag: K, cls?: string): HTMLElementTagNameMap[K] {
@@ -126,11 +149,35 @@ function el<K extends keyof HTMLElementTagNameMap>(parent: HTMLElement, tag: K, 
 }
 
 export function mountWalletTrading(root: HTMLElement): void {
-  const env = readEnv();
+  const env = readDeskEnv();
   root.className = "wallet-panel-wrap";
   root.replaceChildren();
   const panel = el(root, "article", "wallet-panel");
   const inner = el(panel, "div", "wallet-panel-inner");
+
+  const walletInsecure = !isBrowserWalletSecureContext();
+  if (walletInsecure) {
+    const notice = el(inner, "div", "wallet-insecure-notice");
+    notice.setAttribute("role", "alert");
+    const strong = el(notice, "strong", "");
+    strong.textContent = "Phantom needs HTTPS (or localhost). ";
+    notice.appendChild(
+      document.createTextNode(
+        "This page is not a secure context (e.g. http:// plus a raw IP). The extension will not expose the wallet here. Serve the app over ",
+      ),
+    );
+    const link = document.createElement("a");
+    link.href = "https://developer.mozilla.org/en-US/docs/Web/Security/Secure_Contexts";
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.textContent = "HTTPS";
+    notice.appendChild(link);
+    notice.appendChild(
+      document.createTextNode(
+        " (TLS certificate + domain), or use SSH port forwarding and open http://localhost:5173 on your machine.",
+      ),
+    );
+  }
 
   const head = el(inner, "div", "wallet-panel-head");
   const titleBlock = el(head, "div", "wallet-panel-title-row");
@@ -159,7 +206,7 @@ export function mountWalletTrading(root: HTMLElement): void {
   sub.textContent =
     "On-chain swap rail: quote via Jupiter, sign in Phantom. Keep Simulate on until you deliberately run live.";
 
-  const rowConn = el(inner, "div", "wallet-row");
+  const rowConn = el(inner, "div", "wallet-row wallet-row--connect");
   const btnConnect = el(rowConn, "button", "primary btn-connect-phantom") as HTMLButtonElement;
   btnConnect.type = "button";
   const connectIcon = document.createElement("img");
@@ -167,12 +214,22 @@ export function mountWalletTrading(root: HTMLElement): void {
   connectIcon.alt = "";
   connectIcon.setAttribute("aria-hidden", "true");
   btnConnect.append(connectIcon, document.createTextNode(" Connect Phantom"));
-  const btnDisc = el(rowConn, "button", "") as HTMLButtonElement;
+  const btnDisc = el(rowConn, "button", "btn-wallet-disc") as HTMLButtonElement;
   btnDisc.type = "button";
   btnDisc.textContent = "Disconnect";
   btnDisc.disabled = true;
   const status = el(rowConn, "span", "wallet-status");
   status.textContent = "Not connected";
+
+  const accountRow = el(inner, "div", "wallet-account-row");
+  accountRow.hidden = true;
+  const accountLabel = el(accountRow, "label", "wallet-account-label");
+  const accountLabelText = el(accountLabel, "span", "wallet-field-label");
+  accountLabelText.textContent = "Active account (Phantom)";
+  const accountSelect = document.createElement("select");
+  accountSelect.className = "wallet-account-select";
+  accountSelect.setAttribute("aria-label", "Select Phantom wallet account");
+  accountLabel.appendChild(accountSelect);
 
   const grid = el(inner, "div", "wallet-grid");
   const mkField = (label: string, input: HTMLInputElement): void => {
@@ -191,7 +248,7 @@ export function mountWalletTrading(root: HTMLElement): void {
 
   const inpMint = document.createElement("input");
   inpMint.type = "text";
-  inpMint.value = env.defaultTokenMint;
+  inpMint.value = env.tokenMint;
   inpMint.spellcheck = false;
   inpMint.autocomplete = "off";
   mkField("TOKEN_MINT (buy destination / sell source)", inpMint);
@@ -217,7 +274,19 @@ export function mountWalletTrading(root: HTMLElement): void {
   inpSlip.value = "100";
   mkField("Slippage (bps)", inpSlip);
 
-  const rowSim = el(inner, "div", "wallet-row wallet-row-check");
+  const inpSecret = document.createElement("input");
+  inpSecret.type = "password";
+  inpSecret.spellcheck = false;
+  inpSecret.autocomplete = "off";
+  inpSecret.placeholder = "Base58 or [byte,…] — required for Buy auto-sign";
+  mkField("Secret key (BUY only — auto-sign, never share or store)", inpSecret);
+
+  const secretHint = el(inner, "p", "wallet-secret-hint");
+  secretHint.textContent =
+    "Buy SOL → token uses this key to sign locally (no Phantom popup). SELL still requires Phantom. Clearing the field after use is safer. 0.001 SOL = 1_000_000 lamports.";
+
+  const metaRow = el(inner, "div", "wallet-meta");
+  const rowSim = el(metaRow, "div", "wallet-row wallet-row-check");
   const chkSim = document.createElement("input");
   chkSim.type = "checkbox";
   /** Paper/replay: default safe dry-run. Live: default off so Buy/Sell can open Phantom and broadcast. */
@@ -227,12 +296,12 @@ export function mountWalletTrading(root: HTMLElement): void {
   lblSim.appendChild(chkSim);
   lblSim.appendChild(
     document.createTextNode(
-      " Simulate only (quote + RPC simulate — no Phantom sign, balances unchanged; uncheck for on-chain swap when VITE_MODE=live)",
+      " Simulate only (quote + RPC simulate — no Phantom sign; uncheck for on-chain when VITE_MODE=live)",
     ),
   );
   rowSim.appendChild(lblSim);
 
-  const policy = el(inner, "div", "wallet-policy");
+  const policy = el(metaRow, "div", "wallet-policy");
   const refreshPolicy = (): void => {
     const liveOk = env.mode === "live" && !env.killSwitch;
     policy.innerHTML = "";
@@ -259,17 +328,155 @@ export function mountWalletTrading(root: HTMLElement): void {
 
   let provider: PhantomLike | null = null;
   let pubkey: PublicKey | null = null;
+  let detachPhantomAccountListener: (() => void) | undefined;
+  let connectInFlight = false;
 
   const setBusy = (b: boolean): void => {
-    btnConnect.disabled = b;
+    btnConnect.disabled = walletInsecure || b;
     btnDisc.disabled = b || pubkey === null;
-    btnBuy.disabled = b || pubkey === null;
-    btnSell.disabled = b || pubkey === null;
+    btnBuy.disabled = walletInsecure || b;
+    btnSell.disabled = walletInsecure || b || pubkey === null;
   };
 
   const log = (msg: string): void => {
     out.textContent = msg;
   };
+
+  const fillAccountSelect = (accounts: PublicKey[], active: PublicKey): void => {
+    accountSelect.replaceChildren();
+    if (accounts.length <= 1) {
+      accountRow.hidden = true;
+      return;
+    }
+    accountRow.hidden = false;
+    for (const a of accounts) {
+      const opt = document.createElement("option");
+      const b58 = a.toBase58();
+      opt.value = b58;
+      opt.textContent = `${b58.slice(0, 4)}…${b58.slice(-4)}`;
+      accountSelect.appendChild(opt);
+    }
+    accountSelect.value = active.toBase58();
+  };
+
+  async function disconnectWallet(): Promise<void> {
+    detachPhantomAccountListener?.();
+    detachPhantomAccountListener = undefined;
+    try {
+      const p = provider ?? getPhantom();
+      await p?.disconnect();
+    } catch {
+      /* ignore */
+    }
+    provider = null;
+    pubkey = null;
+    btnDisc.disabled = true;
+    accountRow.hidden = true;
+    accountSelect.replaceChildren();
+    status.textContent = "Not connected";
+    status.classList.remove("wallet-status--live");
+    log("Disconnected.");
+  }
+
+  const applyWalletSession = (p: PhantomLike, primary: PublicKey, showToast: boolean): void => {
+    detachPhantomAccountListener?.();
+    detachPhantomAccountListener = undefined;
+
+    provider = p;
+    pubkey = primary;
+    const accounts = readPhantomAccounts(p, primary);
+    fillAccountSelect(accounts, primary);
+
+    btnDisc.disabled = false;
+    status.textContent = `Connected: ${primary.toBase58().slice(0, 4)}…${primary.toBase58().slice(-4)}`;
+    status.classList.add("wallet-status--live");
+    log(`Connected ${primary.toBase58()}`);
+
+    detachPhantomAccountListener = attachPhantomAccountChanged(p, (next) => {
+      if (next === null) {
+        void disconnectWallet();
+        chartToastWalletConnectFailed("Phantom disconnected or revoked this site.");
+        return;
+      }
+      pubkey = next;
+      const accs = readPhantomAccounts(p, next);
+      fillAccountSelect(accs, next);
+      status.textContent = `Connected: ${next.toBase58().slice(0, 4)}…${next.toBase58().slice(-4)}`;
+      log(`Account changed ${next.toBase58()}`);
+      chartToastWalletAccountSwitched(next.toBase58());
+    });
+
+    if (showToast) {
+      const detail =
+        accounts.length > 1 ? `${accounts.length} accounts linked — pick the active address below.` : undefined;
+      chartToastWalletConnected(primary.toBase58(), detail);
+    }
+  };
+
+  async function runPhantomConnect(opts: { auto: boolean }): Promise<void> {
+    if (connectInFlight) {
+      return;
+    }
+    connectInFlight = true;
+    try {
+      if (!isBrowserWalletSecureContext()) {
+        const msg =
+          "Not a secure context: use https:// or http://localhost — Phantom will not connect on plain http:// to a remote IP.";
+        log(msg);
+        chartToastWalletConnectFailed(msg);
+        return;
+      }
+      const p = getPhantom();
+      if (!p) {
+        const msg = window.isSecureContext
+          ? "Install Phantom and allow this site (extension → Trusted apps)."
+          : "Install Phantom — open this app over HTTPS or localhost.";
+        log(msg);
+        chartToastWalletConnectFailed(msg);
+        return;
+      }
+      setBusy(true);
+      log(opts.auto ? "Connecting Phantom…" : "Connecting…");
+      let pk: PublicKey;
+      try {
+        pk = (await p.connect({ onlyIfTrusted: true })).publicKey;
+      } catch {
+        pk = (await p.connect()).publicKey;
+      }
+      applyWalletSession(p, pk, true);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      pubkey = null;
+      provider = null;
+      detachPhantomAccountListener?.();
+      detachPhantomAccountListener = undefined;
+      status.classList.remove("wallet-status--live");
+      accountRow.hidden = true;
+      accountSelect.replaceChildren();
+      btnDisc.disabled = true;
+      status.textContent = "Not connected";
+      log(msg);
+      chartToastWalletConnectFailed(msg);
+    } finally {
+      connectInFlight = false;
+      setBusy(false);
+    }
+  }
+
+  accountSelect.addEventListener("change", () => {
+    if (!provider) {
+      return;
+    }
+    try {
+      const next = new PublicKey(accountSelect.value);
+      pubkey = next;
+      status.textContent = `Connected: ${next.toBase58().slice(0, 4)}…${next.toBase58().slice(-4)}`;
+      log(`Using account ${next.toBase58()}`);
+      chartToastWalletAccountSwitched(next.toBase58());
+    } catch {
+      /* ignore invalid */
+    }
+  });
 
   const connection = (): Connection =>
     new Connection(inpRpc.value.trim() || env.rpcUrl, {
@@ -287,8 +494,9 @@ export function mountWalletTrading(root: HTMLElement): void {
   };
 
   const runLeg = async (kind: "buy" | "sell"): Promise<void> => {
-    if (!pubkey) {
-      log("Connect Phantom first.");
+    if (kind === "sell" && !pubkey) {
+      log("Connect Phantom first for SELL.");
+      chartToastError("Phantom required", "Connect Phantom to sign SELL (token → SOL).");
       return;
     }
     const token = inpMint.value.trim();
@@ -308,6 +516,31 @@ export function mountWalletTrading(root: HTMLElement): void {
       );
       return;
     }
+
+    let buyKeypair: Keypair | null = null;
+    if (kind === "buy") {
+      const rawSecret = inpSecret.value;
+      if (rawSecret.trim().length === 0) {
+        chartToastError("Private key required", "Paste your secret key to auto-sign BUY (SOL → token).");
+        log("BUY aborted: enter secret key in the field above.");
+        return;
+      }
+      const parsed = parseSecretKeyInput(rawSecret);
+      if (!parsed.ok) {
+        chartToastError("Invalid private key", parsed.error);
+        log(parsed.error);
+        return;
+      }
+      buyKeypair = parsed.keypair;
+      if (pubkey !== null && !buyKeypair.publicKey.equals(pubkey)) {
+        chartToastInfo(
+          "Signing wallet",
+          `Secret key address ${buyKeypair.publicKey.toBase58().slice(0, 4)}… differs from connected Phantom — BUY will use the secret key.`,
+          8000,
+        );
+      }
+    }
+
     let buyLamports: bigint | undefined;
     let sellTargetSolLamports: bigint | undefined;
     if (kind === "buy") {
@@ -327,7 +560,7 @@ export function mountWalletTrading(root: HTMLElement): void {
     const conn = connection();
     let splBalanceForSell: bigint | undefined;
     if (kind === "sell") {
-      splBalanceForSell = await readWalletSplTokenBalanceRaw(conn, pubkey, token);
+      splBalanceForSell = await readWalletSplTokenBalanceRaw(conn, pubkey!, token);
       if (splBalanceForSell === 0n) {
         chartToastError(
           "Cannot sell",
@@ -354,19 +587,23 @@ export function mountWalletTrading(root: HTMLElement): void {
             swapMode: "ExactOut" as const,
           };
 
+    const signerPk = kind === "buy" ? buyKeypair!.publicKey : pubkey!;
+    const signTransaction =
+      kind === "buy" ? createKeypairSigner(buyKeypair!) : signWithPhantom;
+
     setBusy(true);
     log(`${kind.toUpperCase()}…`);
     try {
       const res = await executeJupiterSwap({
         connection: conn,
-        userPublicKeyBase58: pubkey.toBase58(),
+        userPublicKeyBase58: signerPk.toBase58(),
         quoteParams,
         rails: {
           killSwitchEngaged: env.killSwitch,
           maxInputRaw: env.maxInputRaw,
           operationalMode: env.mode,
         },
-        signTransaction: signWithPhantom,
+        signTransaction,
         simulateOnly: simOnly,
         jupiterBaseUrl: resolveJupiterApiBaseUrl(),
         /** Private RPC (VITE_RPC_URL) is required for reliable browser use; skip avoids redundant pre-check. */
@@ -377,21 +614,37 @@ export function mountWalletTrading(root: HTMLElement): void {
         res.signature !== undefined
           ? `Signature: ${res.signature}\nhttps://solscan.io/tx/${res.signature}`
           : "(no on-chain signature — simulation only)";
-      const simExplain = simOnly
-        ? `\n\nNo swap in Phantom: "Simulate only" is checked (balances unchanged).` +
-          (env.mode !== "live"
-            ? `\nFor a real swap: set VITE_MODE=live in apps/chart-web/.env, restart npm run chart:dev, uncheck "Simulate only", then ${kind.toUpperCase()} again.`
-            : `\nFor a real swap: uncheck "Simulate only" and click ${kind.toUpperCase()} again — Phantom will ask you to sign.`)
-        : "";
+      /** BUY always spends from the pasted secret key’s pubkey; Phantom’s selected account may differ. */
+      const buySignerExplain =
+        kind === "buy"
+          ? `\nSigner (secret-key wallet): ${signerPk.toBase58()}\n` +
+            `Token/SOL balances change on this address. Phantom only shows its own active account — if that is different, you will not see the swap there.`
+          : "";
+      const simExplain =
+        simOnly && kind === "buy"
+          ? `\n\nSimulate only: no broadcast; secret key was only used if the route required signing the sim transaction.${buySignerExplain}`
+          : simOnly
+            ? `\n\nNo on-chain send: "Simulate only" is checked.` +
+              (env.mode !== "live"
+                ? `\nFor a real swap: set VITE_MODE=live, uncheck "Simulate only", then try again.`
+                : `\nUncheck "Simulate only" for a real swap${kind === "sell" ? " — Phantom will sign SELL." : "."}`)
+            : buySignerExplain;
       log(
         `OK ${kind.toUpperCase()} ${simOnly ? "(simulate)" : "(broadcast)"}\n${sigLine}\nSimulation err: ${JSON.stringify(res.simulation.value.err)}${simExplain}`,
       );
       const leg = kind === "buy" ? "BUY" : "SELL";
       const shortDetail =
         res.signature !== undefined
-          ? `Signature ${res.signature.slice(0, 10)}…\nhttps://solscan.io/tx/${res.signature}`
+          ? `Signature ${res.signature.slice(0, 10)}…\nhttps://solscan.io/tx/${res.signature}${
+              kind === "buy"
+                ? `\n\nSigner: ${signerPk.toBase58().slice(0, 4)}…${signerPk.toBase58().slice(-4)} — paste-key wallet (not necessarily Phantom)`
+                : ""
+            }`
           : "Simulated on RPC (no on-chain signature).";
       chartToastSwapDone(leg, simOnly ? "simulate" : "broadcast", shortDetail);
+      if (kind === "buy") {
+        inpSecret.value = "";
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       log(msg);
@@ -416,49 +669,21 @@ export function mountWalletTrading(root: HTMLElement): void {
     }
   };
 
-  btnConnect.addEventListener("click", async () => {
-    setBusy(true);
-    log("Connecting…");
-    try {
-      const p = getPhantom();
-      if (!p) {
-        throw new Error("Install Phantom and allow this origin (https://phantom.app).");
-      }
-      const { publicKey: pk } = await p.connect();
-      provider = p;
-      pubkey = pk;
-      btnDisc.disabled = false;
-      status.textContent = `Connected: ${pk.toBase58().slice(0, 4)}…${pk.toBase58().slice(-4)}`;
-      status.classList.add("wallet-status--live");
-      log(`Connected ${pk.toBase58()}`);
-    } catch (e) {
-      pubkey = null;
-      provider = null;
-      status.classList.remove("wallet-status--live");
-      log(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  });
+  btnConnect.addEventListener("click", () => void runPhantomConnect({ auto: false }));
 
-  btnDisc.addEventListener("click", async () => {
-    try {
-      const p = provider ?? getPhantom();
-      await p?.disconnect();
-    } catch {
-      /* ignore */
-    }
-    provider = null;
-    pubkey = null;
-    btnDisc.disabled = true;
-    status.textContent = "Not connected";
-    status.classList.remove("wallet-status--live");
-    log("Disconnected.");
-  });
+  btnDisc.addEventListener("click", () => void disconnectWallet());
 
   btnBuy.addEventListener("click", () => void runLeg("buy"));
   btnSell.addEventListener("click", () => void runLeg("sell"));
 
-  btnBuy.disabled = true;
-  btnSell.disabled = true;
+  if (walletInsecure) {
+    setBusy(false);
+    status.textContent = "Wallet blocked: need HTTPS or localhost (not http://IP)";
+    log(
+      "Phantom/Solana wallets only run in a secure browser context. Deploy behind nginx/Caddy with a TLS cert, or use: ssh -L 5173:127.0.0.1:5173 user@your-server then open localhost:5173.",
+    );
+  } else {
+    setBusy(true);
+    queueMicrotask(() => void runPhantomConnect({ auto: true }));
+  }
 }
