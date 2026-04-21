@@ -281,25 +281,12 @@ export function mountWalletTrading(root: HTMLElement): void {
   inpSecret.placeholder = "Base58 or [byte,…] — required for Buy auto-sign";
   mkField("Secret key (BUY only — auto-sign, never share or store)", inpSecret);
 
-  const secretHint = el(inner, "p", "wallet-secret-hint");
-  secretHint.textContent =
-    "Buy SOL → token uses this key to sign locally (no Phantom popup). SELL still requires Phantom. Clearing the field after use is safer. 0.001 SOL = 1_000_000 lamports.";
-
   const metaRow = el(inner, "div", "wallet-meta");
   const rowSim = el(metaRow, "div", "wallet-row wallet-row-check");
   const chkSim = document.createElement("input");
   chkSim.type = "checkbox";
   /** Paper/replay: default safe dry-run. Live: default off so Buy/Sell can open Phantom and broadcast. */
   chkSim.checked = env.mode !== "live";
-  const lblSim = document.createElement("label");
-  lblSim.className = "wallet-check-label";
-  lblSim.appendChild(chkSim);
-  lblSim.appendChild(
-    document.createTextNode(
-      " Simulate only (quote + RPC simulate — no Phantom sign; uncheck for on-chain when VITE_MODE=live)",
-    ),
-  );
-  rowSim.appendChild(lblSim);
 
   const policy = el(metaRow, "div", "wallet-policy");
   const refreshPolicy = (): void => {
