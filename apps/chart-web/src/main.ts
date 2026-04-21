@@ -27,7 +27,14 @@ import type { BarIndicators } from "@bot/strategy/barIndicators.js";
 import { STAGE8_EDUCATIONAL_FOOTER } from "@bot/scope/stage8.js";
 import { DEFAULT_STRATEGY_CONFIG } from "@bot/strategy/strategyConfig.js";
 import type { StrategyEvent } from "@bot/strategy/types.js";
-import { appendToast, notifyDesktop, requestNotifyPermission } from "./notify.js";
+import {
+  chartToastBuySignalDone,
+  chartToastInfo,
+  chartToastSellSignalDone,
+  chartToastStrategyTail,
+  mountChartToaster,
+} from "./chartToaster.js";
+import { notifyDesktop, requestNotifyPermission } from "./notify.js";
 import { DEFAULT_DEMO_POOL_ADDRESS } from "./defaults.js";
 import {
   appendPosition,
@@ -35,6 +42,7 @@ import {
   loadLocalPositions,
   syncPositionsFromServer,
 } from "./positionsLog.js";
+import { runFirstVisitIntro } from "./firstVisitIntro.js";
 import { mountWalletTrading } from "./walletTrading.js";
 
 /** Recent bars considered for ENTRY/EXIT hooks + toasts (TWO_GREEN entry often completes on lastIdx-1). */
@@ -188,7 +196,6 @@ function rememberSignalKey(delivered: Set<string>, key: string): boolean {
 function createNotifyExecution(
   pairLabel: string,
   poolAddress: string,
-  toastHost: HTMLElement,
   deliveredSignals: Set<string>,
   onPersisted: () => void,
 ): ExecutionAdapter {
@@ -200,7 +207,6 @@ function createNotifyExecution(
       }
       const msg = `${p.reason}\n${new Date(p.timeMs).toISOString()}`;
       notifyDesktop(`${pairLabel} — BUY (notify only)`, msg);
-      appendToast(toastHost, `${pairLabel} — BUY`, msg);
       void appendPosition({
         ts: new Date(p.timeMs).toISOString(),
         side: "BUY",
@@ -208,7 +214,10 @@ function createNotifyExecution(
         pool: poolAddress,
         barIndex: p.barIndex,
         reason: p.reason,
-      }).then(onPersisted);
+      }).then(() => {
+        onPersisted();
+        chartToastBuySignalDone(pairLabel, p.reason, new Date(p.timeMs).toISOString());
+      });
     },
     onSignalExit(p: ExecutionSignalPayload) {
       const key = `SIGNAL_EXIT:${p.timeMs}`;
@@ -217,7 +226,6 @@ function createNotifyExecution(
       }
       const msg = `${p.reason}\n${new Date(p.timeMs).toISOString()}`;
       notifyDesktop(`${pairLabel} — SELL (notify only)`, msg);
-      appendToast(toastHost, `${pairLabel} — SELL`, msg);
       void appendPosition({
         ts: new Date(p.timeMs).toISOString(),
         side: "SELL",
@@ -225,7 +233,10 @@ function createNotifyExecution(
         pool: poolAddress,
         barIndex: p.barIndex,
         reason: p.reason,
-      }).then(onPersisted);
+      }).then(() => {
+        onPersisted();
+        chartToastSellSignalDone(pairLabel, p.reason, new Date(p.timeMs).toISOString());
+      });
     },
   };
 }
@@ -237,40 +248,87 @@ function tailWindowEvents(events: readonly StrategyEvent[], lastIndex: number, l
 }
 
 function mount(): void {
+  mountChartToaster();
   const params = new URLSearchParams(window.location.search);
   const fromUrl = params.get("pool")?.trim();
   const initialPool = fromUrl && fromUrl.length > 0 ? fromUrl : DEFAULT_DEMO_POOL_ADDRESS;
 
   const app = $("#app");
   app.innerHTML = `
-      <div class="toolbar">
-        <input id="pool" type="text" spellcheck="false" autocomplete="off"
-          placeholder="Solana pool address (GeckoTerminal pool id)" />
-        <button id="btn-load" class="primary" type="button">Load</button>
-        <button id="btn-notify" type="button">Enable notifications</button>
-        <a href="#wallet-panel" class="toolbar-link">Phantom swaps</a>
-        <a href="#signal-log" class="toolbar-link">Signal history</a>
-      </div>
+      <header class="app-header" role="banner">
+        <div class="app-header__top">
+          <div class="app-brand" aria-label="sol_bot trading desk">
+            <div class="app-brand__marks">
+              <img src="/branding/solana.svg" width="26" height="26" alt="" />
+            </div>
+            <div class="app-brand__text">
+              <span class="app-brand__name">Solana TradingView</span>
+            </div>
+          </div>
+          <nav class="desk-nav" aria-label="Section shortcuts">
+            <a class="desk-nav__link" href="#wallet-panel">Swaps</a>
+            <a class="desk-nav__link" href="#desk-hero">Chart</a>
+            <a class="desk-nav__link" href="#signal-log">Signals</a>
+          </nav>
+          <div class="toolbar" role="search">
+            <input id="pool" type="text" spellcheck="false" autocomplete="off"
+              placeholder="Pool address (GeckoTerminal id)" />
+            <div class="toolbar-actions">
+              <button id="btn-load" class="primary btn-pill-glow" type="button">Load pool →</button>
+              <button id="btn-notify" class="btn-ghost-pill" type="button">Alerts</button>
+              <a href="#wallet-panel" class="toolbar-link toolbar-link--caps">Jupiter</a>
+              <a href="#signal-log" class="toolbar-link toolbar-link--caps">Log</a>
+            </div>
+          </div>
+        </div>
+        <p class="app-header__tagline">VWAP / VWMA signal bot · Phantom-ready · <span class="sol-gradient-text">SOL</span> execution stack</p>
+      </header>
       <section id="wallet-panel" class="wallet-panel-wrap"></section>
-      <div id="pair" style="font-weight:700;margin:6px 0 2px"></div>
-      <div id="subpair" class="hint" style="margin-top:0;margin-bottom:8px"></div>
-      <div class="metrics">
-        <div class="metric"><div class="k">VWAP (UTC DAY)</div><div class="v" id="m-vwap">—</div></div>
-        <div class="metric"><div class="k">VWMA (3)</div><div class="v" id="m-3">—</div></div>
-        <div class="metric"><div class="k">VWMA (9)</div><div class="v" id="m-9">—</div></div>
-        <div class="metric"><div class="k">VWMA (18)</div><div class="v" id="m-18">—</div></div>
-      </div>
-      <div id="crosshair-hud" class="crosshair-hud" aria-live="polite"></div>
-      <div id="banner" style="display:none" class="banner"></div>
-      <div class="chart-wrap">
-        <div id="chart-overlay" class="chart-overlay visible">Loading 1m OHLCV…</div>
-        <div id="chart"></div>
+      <div id="desk-hero" class="desk-hero">
+        <div class="desk-hero__glow" aria-hidden="true"></div>
+        <div class="desk-hero__ring" aria-hidden="true"></div>
+        <ul class="desk-orbit" aria-hidden="true">
+          <li class="orbit-node orbit-node--tr">
+            <span class="orbit-node__bubble"><img src="/branding/solana.svg" width="22" height="22" alt="" /></span>
+          </li>
+          <li class="orbit-node orbit-node--br">
+            <span class="orbit-node__bubble"><img src="/branding/jupiter.svg" width="22" height="22" alt="" /></span>
+          </li>
+          <li class="orbit-node orbit-node--bl">
+            <span class="orbit-node__bubble"><img src="/branding/usdc.svg" width="22" height="22" alt="" /></span>
+          </li>
+          <li class="orbit-node orbit-node--ml">
+            <span class="orbit-node__bubble"><img src="/branding/wallet.svg" width="22" height="22" alt="" /></span>
+          </li>
+        </ul>
+        <div class="desk-hero__content glass-deck">
+          <p class="hero-eyebrow">
+            <span class="hero-badge">Desk live</span>
+            <span class="hero-eyebrow__text">1m OHLCV · strategy-linked indicators · on-chain swap rail</span>
+          </p>
+          <div class="pair-block">
+            <div id="pair" class="hero-pair-line"></div>
+            <div id="subpair" class="hint hero-subline"></div>
+          </div>
+          <div class="metrics">
+            <div class="metric"><div class="k">VWAP (UTC DAY)</div><div class="v" id="m-vwap">—</div></div>
+            <div class="metric"><div class="k">VWMA (3)</div><div class="v" id="m-3">—</div></div>
+            <div class="metric"><div class="k">VWMA (9)</div><div class="v" id="m-9">—</div></div>
+            <div class="metric"><div class="k">VWMA (18)</div><div class="v" id="m-18">—</div></div>
+          </div>
+          <div id="crosshair-hud" class="crosshair-hud" aria-live="polite"></div>
+          <div id="banner" style="display:none" class="banner"></div>
+          <div class="chart-wrap">
+            <div id="chart-overlay" class="chart-overlay visible">Loading 1m OHLCV…</div>
+            <div id="chart"></div>
+          </div>
+        </div>
       </div>
       <div class="hint">
         1m OHLCV from GeckoTerminal (public beta). A <b>demo pool</b> loads automatically so the chart is visible; paste your own pool id and click <b>Load</b>.
         Chart refreshes every <b>60s</b> and recomputes VWAP + VWMA 3/9/18 on the <b>merged</b> in-memory series (latest GeckoTerminal page plus any older pages you load). The default view is the <b>latest ~2 hours</b> of 1m bars; <b>pan left</b> near the left edge to fetch older candles via GeckoTerminal <code>before_timestamp</code>. Move the mouse over the chart to update the metrics and the OHLC line for that bar. The right edge stays pinned to the newest candle (no empty margin past the last bar).
         If GeckoTerminal fails after a <b>Wi‑Fi / VPN / proxy</b> hiccup, the client <b>retries with backoff</b>; press <b>Load</b> after the network stabilizes. Silent refresh will not spam a red error over your chart.
-        <b>In-app toasts</b> (bottom-right) for signals; <b>BUY/SELL</b> also append to <code>positions.txt</code> (JSON Lines: dev server file + browser localStorage). Use <b>Enable notifications</b> for OS alerts. <b>On-chain swaps</b> are optional via the <a href="#wallet-panel">Phantom + Jupiter</a> panel (sign in Phantom).
+        <b>In-app toasts</b> (<code>react-hot-toast</code>, bottom-right) fire when a <b>BUY/SELL signal is logged</b> to history; <b>BUY/SELL</b> also append to <code>positions.txt</code> (JSON Lines: dev server file + browser localStorage). Use <b>Alerts</b> for OS notifications. <b>On-chain swaps</b> are optional via the <a href="#wallet-panel">Phantom + Jupiter</a> panel (sign in Phantom).
       </div>
       <section id="signal-log" class="signal-log">
         <div class="signal-log-head">
@@ -304,6 +362,7 @@ function mount(): void {
   if (walletHost) {
     mountWalletTrading(walletHost);
   }
+  runFirstVisitIntro();
 
   const renderPositionsTableBody = (): void => {
     const tbody = document.getElementById("positions-tbody");
@@ -333,11 +392,6 @@ function mount(): void {
       tbody.appendChild(tr);
     }
   };
-
-  const toastHost = document.createElement("div");
-  toastHost.id = "toasts";
-  toastHost.className = "toast-wrap";
-  document.body.appendChild(toastHost);
 
   /** Dedupe BUY/SELL + ARMED/INVALIDATED across 60s polls (FSM replay repeats the same events). */
   const deliveredSignals = new Set<string>();
@@ -374,8 +428,11 @@ function mount(): void {
   let historyBusy = false;
   let lastPairLabel = "SOL/USDC";
 
-  // GeckoTerminal returns Access-Control-Allow-Origin: * — browser GET avoids Vite's Node proxy.
-  const apiBase = "https://api.geckoterminal.com/api/v2";
+  // In `vite dev`, same-origin `/gt-api` uses `vite.config.ts` proxy (IPv4-preferring HTTPS agent) so flaky
+  // browser/VPN/IPv6 paths do not block OHLCV. Production / `vite preview` hits Gecko directly.
+  const apiBase = import.meta.env.DEV
+    ? `${window.location.origin}/gt-api`
+    : "https://api.geckoterminal.com/api/v2";
   /** Extra attempts for flaky Wi‑Fi / VPN / proxy (Chromium often reports only "Failed to fetch"). */
   const geckoFetchAttempts = 8;
   const geckoFetchTimeoutMs = 70_000;
@@ -386,17 +443,17 @@ function mount(): void {
     width: chartEl.clientWidth,
     height: 520,
     layout: {
-      background: { type: ColorType.Solid, color: "#0b0e11" },
-      textColor: "#c7cbd1",
+      background: { type: ColorType.Solid, color: "#080b12" },
+      textColor: "#a8b0bf",
     },
     grid: {
-      vertLines: { color: "rgba(43,49,57,0.55)" },
-      horzLines: { color: "rgba(43,49,57,0.55)" },
+      vertLines: { color: "rgba(120,132,160,0.12)" },
+      horzLines: { color: "rgba(120,132,160,0.12)" },
     },
     crosshair: { mode: CrosshairMode.Normal },
-    rightPriceScale: { borderColor: "#2b3139" },
+    rightPriceScale: { borderColor: "rgba(120,132,160,0.2)" },
     timeScale: {
-      borderColor: "#2b3139",
+      borderColor: "rgba(120,132,160,0.2)",
       timeVisible: true,
       secondsVisible: false,
       rightOffset: 0,
@@ -423,8 +480,8 @@ function mount(): void {
 
   const vwap = chart.addLineSeries({ color: "#e7e9ee", lineWidth: 2, title: "VWAP" });
   const w3 = chart.addLineSeries({ color: "#2962ff", lineWidth: 1, title: "VWMA 3" });
-  const w9 = chart.addLineSeries({ color: "#9c27b0", lineWidth: 1, title: "VWMA 9" });
-  const w18 = chart.addLineSeries({ color: "#fbc02d", lineWidth: 1, title: "VWMA 18" });
+  const w9 = chart.addLineSeries({ color: "#9945ff", lineWidth: 1, title: "VWMA 9" });
+  const w18 = chart.addLineSeries({ color: "#14f195", lineWidth: 1, title: "VWMA 18" });
 
   const updateMetrics = (barIdx: number, indicators: readonly MetricsRow[]) => {
     const row = indicators[barIdx];
@@ -558,7 +615,7 @@ function mount(): void {
       }
       const agent = new SignalAgent({
         strategy: DEFAULT_STRATEGY_CONFIG,
-        execution: createNotifyExecution(lastPairLabel, pool, toastHost, deliveredSignals, renderPositionsTableBody),
+        execution: createNotifyExecution(lastPairLabel, pool, deliveredSignals, renderPositionsTableBody),
         executionHooksScope: "tail_bar_only",
         executionTailBarLookback: EXEC_SIGNAL_TAIL_LOOKBACK,
         log: () => {},
@@ -670,7 +727,7 @@ function mount(): void {
 
       const agent = new SignalAgent({
         strategy: DEFAULT_STRATEGY_CONFIG,
-        execution: createNotifyExecution(label, pool, toastHost, deliveredSignals, renderPositionsTableBody),
+        execution: createNotifyExecution(label, pool, deliveredSignals, renderPositionsTableBody),
         executionHooksScope: "tail_bar_only",
         executionTailBarLookback: EXEC_SIGNAL_TAIL_LOOKBACK,
         log: () => {},
@@ -712,12 +769,7 @@ function mount(): void {
           if (!rememberSignalKey(deliveredSignals, key)) {
             continue;
           }
-          appendToast(
-            toastHost,
-            `${label} — ${ev.kind}`,
-            `${ev.reason}\n${new Date(tMs).toISOString()}`,
-            8000,
-          );
+          chartToastStrategyTail(label, ev.kind, ev.reason, new Date(tMs).toISOString(), 8000);
         }
       }
     } catch (e) {
@@ -750,7 +802,7 @@ function mount(): void {
           : p === "denied"
             ? "OS alerts blocked — you will still see in-app toasts bottom-right."
             : "Permission not decided — OS alerts may be unavailable.";
-      appendToast(toastHost, `Notifications: ${p}`, detail, 14_000);
+      chartToastInfo(`Notifications: ${p}`, detail, 14_000);
     });
   });
 
