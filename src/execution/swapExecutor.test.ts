@@ -45,7 +45,6 @@ describe("executeJupiterSwap (Stage 5.4–5.5)", () => {
       getLatestBlockhash: vi.fn().mockResolvedValue({ blockhash: "11111111111111111111111111111111", lastValidBlockHeight: 99 }),
       simulateTransaction: vi.fn().mockResolvedValue({ value: { err: null, logs: [] }, context: { slot: 1 } }),
       sendRawTransaction,
-      confirmTransaction: vi.fn(),
     } as unknown as Connection;
 
     await executeJupiterSwap({
@@ -168,14 +167,17 @@ describe("executeJupiterSwap (Stage 5.4–5.5)", () => {
     };
 
     const sendRawTransaction = vi.fn().mockResolvedValue("sig111");
-    const confirmTransaction = vi.fn().mockResolvedValue({ value: { err: null }, context: { slot: 2 } });
 
     const conn = {
       getSlot: vi.fn().mockResolvedValue(123),
       getLatestBlockhash: vi.fn().mockResolvedValue({ blockhash: "11111111111111111111111111111111", lastValidBlockHeight: 99 }),
       simulateTransaction: vi.fn().mockResolvedValue({ value: { err: null, logs: [] }, context: { slot: 1 } }),
+      getBlockHeight: vi.fn().mockResolvedValue(50),
+      getSignatureStatuses: vi.fn().mockResolvedValue({
+        context: { slot: 2 },
+        value: [{ err: null, confirmationStatus: "confirmed" as const }],
+      }),
       sendRawTransaction,
-      confirmTransaction,
     } as unknown as Connection;
 
     const res = await executeJupiterSwap({
@@ -207,7 +209,6 @@ describe("executeJupiterSwap (Stage 5.4–5.5)", () => {
       getLatestBlockhash: vi.fn().mockResolvedValue({ blockhash: "11111111111111111111111111111111", lastValidBlockHeight: 99 }),
       simulateTransaction: vi.fn().mockResolvedValue({ value: { err: null, logs: [] }, context: { slot: 1 } }),
       sendRawTransaction: vi.fn(),
-      confirmTransaction: vi.fn(),
     } as unknown as Connection;
 
     await expect(

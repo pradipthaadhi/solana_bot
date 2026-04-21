@@ -8,8 +8,11 @@
 import {
   AddressLookupTableAccount,
   Connection,
+  TransactionExpiredBlockheightExceededError,
+  TransactionExpiredTimeoutError,
   TransactionMessage,
   VersionedTransaction,
+  type Commitment,
   type RpcResponseAndContext,
   type SimulatedTransactionResponse,
 } from "@solana/web3.js";
@@ -49,6 +52,73 @@ export interface ExecuteJupiterSwapResult {
   simulation: RpcResponseAndContext<SimulatedTransactionResponse>;
   /** Present when `simulateOnly` is false and broadcast succeeds. */
   signature?: string;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** HTTP-only RPCs (e.g. Alchemy HTTPS) often omit WebSocket `signatureSubscribe`; web3's default confirm uses WS. */
+function readConfirmTimeoutMs(connection: Connection): number {
+  const t = (connection as unknown as { _confirmTransactionInitialTimeout?: number })._confirmTransactionInitialTimeout;
+  return typeof t === "number" && t > 0 ? t : 60_000;
+}
+
+function signatureStatusMeetsCommitment(confirmationStatus: string | undefined, commitment: Commitment): boolean {
+  if (!confirmationStatus) {
+    return false;
+  }
+  switch (commitment) {
+    case "processed":
+    case "recent":
+      return (
+        confirmationStatus === "processed" ||
+        confirmationStatus === "confirmed" ||
+        confirmationStatus === "finalized"
+      );
+    case "confirmed":
+    case "single":
+    case "singleGossip":
+      return confirmationStatus === "confirmed" || confirmationStatus === "finalized";
+    case "finalized":
+    case "max":
+    case "root":
+      return confirmationStatus === "finalized";
+    default:
+      return confirmationStatus === "confirmed" || confirmationStatus === "finalized";
+  }
+}
+
+/**
+ * Confirm a signature using only HTTP JSON-RPC (`getBlockHeight`, `getSignatureStatuses`).
+ * Avoids `signatureSubscribe`, which many private RPC tiers do not support (-32601).
+ */
+async function confirmSignatureHttpPolling(
+  connection: Connection,
+  signature: string,
+  lastValidBlockHeight: number,
+  commitment: Commitment,
+  timeoutMs: number,
+): Promise<RpcResponseAndContext<{ err: unknown }>> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const height = await connection.getBlockHeight(commitment);
+    if (height > lastValidBlockHeight) {
+      throw new TransactionExpiredBlockheightExceededError(signature);
+    }
+    const res = await connection.getSignatureStatuses([signature], { searchTransactionHistory: true });
+    const st = res.value[0];
+    if (st != null) {
+      if (st.err != null) {
+        return { context: { slot: res.context.slot }, value: { err: st.err } };
+      }
+      if (signatureStatusMeetsCommitment(st.confirmationStatus, commitment)) {
+        return { context: { slot: res.context.slot }, value: { err: null } };
+      }
+    }
+    await sleep(750);
+  }
+  throw new TransactionExpiredTimeoutError(signature, Math.ceil(timeoutMs / 1000));
 }
 
 function toBufferFromSwapTxBase64(b64: string): Uint8Array {
@@ -187,13 +257,13 @@ export async function executeJupiterSwap(params: ExecuteJupiterSwapParams): Prom
   });
 
   const latest = await params.connection.getLatestBlockhash(commitment);
-  const confirmation = await params.connection.confirmTransaction(
-    {
-      signature,
-      blockhash: latest.blockhash,
-      lastValidBlockHeight: latest.lastValidBlockHeight,
-    },
+  const confirmTimeoutMs = readConfirmTimeoutMs(params.connection);
+  const confirmation = await confirmSignatureHttpPolling(
+    params.connection,
+    signature,
+    latest.lastValidBlockHeight,
     commitment,
+    confirmTimeoutMs,
   );
   if (confirmation.value.err) {
     throw new Error(`CONFIRMATION_FAILED: ${JSON.stringify(confirmation.value.err)}`);
