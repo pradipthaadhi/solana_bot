@@ -28,6 +28,9 @@ export function buildJupiterQuoteUrl(params: JupiterQuoteParams, baseUrl = JUPIT
   if (params.onlyDirectRoutes === true) {
     url.searchParams.set("onlyDirectRoutes", "true");
   }
+  if (params.swapMode === "ExactOut") {
+    url.searchParams.set("swapMode", "ExactOut");
+  }
   return url.toString();
 }
 
@@ -43,6 +46,10 @@ export async function fetchJupiterQuote(
   }
   const res = await fetchFn(url, init);
   if (!res.ok) {
+    if (res.status >= 502 && res.status <= 504) {
+      await res.text().catch(() => "");
+      throw new Error("Jupiter quote service is temporarily unreachable.\n" + url);
+    }
     const text = await res.text().catch(() => "");
     throw new Error(`Jupiter quote HTTP ${res.status}: ${text.slice(0, 400)}`);
   }
@@ -73,6 +80,10 @@ export async function fetchJupiterSwapTransaction(
   const fetchFn = options?.fetchFn ?? fetch;
   const res = await fetchFn(url, init);
   if (!res.ok) {
+    if (res.status >= 502 && res.status <= 504) {
+      await res.text().catch(() => "");
+      throw new Error("Jupiter swap service is temporarily unreachable.");
+    }
     const text = await res.text().catch(() => "");
     throw new Error(`Jupiter swap HTTP ${res.status}: ${text.slice(0, 400)}`);
   }

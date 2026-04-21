@@ -27,10 +27,25 @@ describe("buildJupiterQuoteUrl", () => {
         slippageBps: 50,
         onlyDirectRoutes: true,
       },
-      "https://quote-api.jup.ag/v6",
+      "https://api.jup.ag/swap/v1",
     );
     expect(u).toContain("inputMint=So11111111111111111111111111111111111111112");
     expect(u).toContain("onlyDirectRoutes=true");
+    expect(u).toContain("amount=1000000");
+  });
+
+  it("includes swapMode=ExactOut when requested", () => {
+    const u = buildJupiterQuoteUrl(
+      {
+        inputMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        outputMint: "So11111111111111111111111111111111111111112",
+        amount: 1_000_000n,
+        slippageBps: 100,
+        swapMode: "ExactOut",
+      },
+      "https://api.jup.ag/swap/v1",
+    );
+    expect(u).toContain("swapMode=ExactOut");
     expect(u).toContain("amount=1000000");
   });
 });
