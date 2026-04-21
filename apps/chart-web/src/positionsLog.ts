@@ -4,6 +4,9 @@
 
 export type TradeSide = "BUY" | "SELL";
 
+/** Outcome of the optional on-chain leg for this signal row. */
+export type SignalTxStatus = "ok" | "error" | "skipped";
+
 export interface PositionSignalRow {
   /** ISO 8601 (bar close / signal time). */
   ts: string;
@@ -12,6 +15,12 @@ export interface PositionSignalRow {
   pool: string;
   barIndex: number;
   reason: string;
+  /** Set when auto-execution runs or is skipped (older rows may omit). */
+  txStatus?: SignalTxStatus;
+  /** Error message, skip reason, or short success note (e.g. signature snippet). */
+  txDetail?: string;
+  /** Solana signature when `txStatus === "ok"`. */
+  signature?: string;
 }
 
 const LS_KEY = "sol_bot_positions_v1";
@@ -59,14 +68,26 @@ function isRow(x: unknown): x is PositionSignalRow {
     return false;
   }
   const r = x as Record<string, unknown>;
-  return (
+  const base =
     typeof r.ts === "string" &&
     (r.side === "BUY" || r.side === "SELL") &&
     typeof r.pair === "string" &&
     typeof r.pool === "string" &&
     typeof r.barIndex === "number" &&
-    typeof r.reason === "string"
-  );
+    typeof r.reason === "string";
+  if (!base) {
+    return false;
+  }
+  if (r.txStatus !== undefined && r.txStatus !== "ok" && r.txStatus !== "error" && r.txStatus !== "skipped") {
+    return false;
+  }
+  if (r.txDetail !== undefined && typeof r.txDetail !== "string") {
+    return false;
+  }
+  if (r.signature !== undefined && typeof r.signature !== "string") {
+    return false;
+  }
+  return true;
 }
 
 export function rowToLine(r: PositionSignalRow): string {

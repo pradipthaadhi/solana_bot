@@ -14,7 +14,6 @@ import {
   type Time,
   type UTCTimestamp,
 } from "lightweight-charts";
-import type { ExecutionAdapter, ExecutionSignalPayload } from "@bot/agent/executionAdapter.js";
 import { SignalAgent } from "@bot/agent/signalAgent.js";
 import {
   describeGeckoTerminalFetchError,
@@ -36,13 +35,10 @@ import {
 } from "./chartToaster.js";
 import { notifyDesktop, requestNotifyPermission } from "./notify.js";
 import { DEFAULT_DEMO_POOL_ADDRESS } from "./defaults.js";
-import {
-  appendPosition,
-  downloadPositionsTxt,
-  loadLocalPositions,
-  syncPositionsFromServer,
-} from "./positionsLog.js";
+import { downloadPositionsTxt, loadLocalPositions, syncPositionsFromServer } from "./positionsLog.js";
 import { runFirstVisitIntro } from "./firstVisitIntro.js";
+import { requireTradingSessionKey } from "./keyGateModal.js";
+import { createAutoSwapExecutionAdapter } from "./signalAutoExecution.js";
 import { mountWalletTrading } from "./walletTrading.js";
 
 /** Recent bars considered for ENTRY/EXIT hooks + toasts (TWO_GREEN entry often completes on lastIdx-1). */
@@ -193,62 +189,15 @@ function rememberSignalKey(delivered: Set<string>, key: string): boolean {
   return true;
 }
 
-function createNotifyExecution(
-  pairLabel: string,
-  poolAddress: string,
-  deliveredSignals: Set<string>,
-  onPersisted: () => void,
-): ExecutionAdapter {
-  return {
-    onSignalEntry(p: ExecutionSignalPayload) {
-      const key = `SIGNAL_ENTRY:${p.timeMs}`;
-      if (!rememberSignalKey(deliveredSignals, key)) {
-        return;
-      }
-      const msg = `${p.reason}\n${new Date(p.timeMs).toISOString()}`;
-      notifyDesktop(`${pairLabel} — BUY (notify only)`, msg);
-      void appendPosition({
-        ts: new Date(p.timeMs).toISOString(),
-        side: "BUY",
-        pair: pairLabel,
-        pool: poolAddress,
-        barIndex: p.barIndex,
-        reason: p.reason,
-      }).then(() => {
-        onPersisted();
-        chartToastBuySignalDone(pairLabel, p.reason, new Date(p.timeMs).toISOString());
-      });
-    },
-    onSignalExit(p: ExecutionSignalPayload) {
-      const key = `SIGNAL_EXIT:${p.timeMs}`;
-      if (!rememberSignalKey(deliveredSignals, key)) {
-        return;
-      }
-      const msg = `${p.reason}\n${new Date(p.timeMs).toISOString()}`;
-      notifyDesktop(`${pairLabel} — SELL (notify only)`, msg);
-      void appendPosition({
-        ts: new Date(p.timeMs).toISOString(),
-        side: "SELL",
-        pair: pairLabel,
-        pool: poolAddress,
-        barIndex: p.barIndex,
-        reason: p.reason,
-      }).then(() => {
-        onPersisted();
-        chartToastSellSignalDone(pairLabel, p.reason, new Date(p.timeMs).toISOString());
-      });
-    },
-  };
-}
-
 function tailWindowEvents(events: readonly StrategyEvent[], lastIndex: number, lookback: number): StrategyEvent[] {
   const span = Math.max(1, lookback);
   const minIdx = Math.max(0, lastIndex - (span - 1));
   return events.filter((e) => e.barIndex >= minIdx && e.barIndex <= lastIndex);
 }
 
-function mount(): void {
+async function mount(): Promise<void> {
   mountChartToaster();
+  await requireTradingSessionKey();
   const params = new URLSearchParams(window.location.search);
   const fromUrl = params.get("pool")?.trim();
   const initialPool = fromUrl && fromUrl.length > 0 ? fromUrl : DEFAULT_DEMO_POOL_ADDRESS;
@@ -257,27 +206,33 @@ function mount(): void {
   app.innerHTML = `
       <header class="app-header" role="banner">
         <div class="app-header__top">
-          <div class="app-brand" aria-label="sol_bot trading desk">
-            <div class="app-brand__marks">
-              <img src="/branding/solana.svg" width="26" height="26" alt="" />
+          <div class="app-header__brand-row">
+            <div class="app-brand" aria-label="sol_bot trading desk">
+              <div class="app-brand__marks">
+                <img src="/branding/solana.svg" width="26" height="26" alt="" />
+                <img src="/branding/usdc.svg" width="26" height="26" alt="" />
+              </div>
+              <div class="app-brand__text">
+                <span class="app-brand__name">sol_bot</span>
+                <span class="app-brand__tag">Solana · chart desk</span>
+              </div>
             </div>
-            <div class="app-brand__text">
-              <span class="app-brand__name">Solana TradingView</span>
-            </div>
+            <nav class="desk-nav" aria-label="Section shortcuts">
+              <a class="desk-nav__link" href="#wallet-panel">Swaps</a>
+              <a class="desk-nav__link" href="#desk-hero">Chart</a>
+              <a class="desk-nav__link" href="#signal-log">Signals</a>
+            </nav>
           </div>
-          <nav class="desk-nav" aria-label="Section shortcuts">
-            <a class="desk-nav__link" href="#wallet-panel">Swaps</a>
-            <a class="desk-nav__link" href="#desk-hero">Chart</a>
-            <a class="desk-nav__link" href="#signal-log">Signals</a>
-          </nav>
-          <div class="toolbar" role="search">
-            <input id="pool" type="text" spellcheck="false" autocomplete="off"
-              placeholder="Pool address (GeckoTerminal id)" />
-            <div class="toolbar-actions">
-              <button id="btn-load" class="primary btn-pill-glow" type="button">Load pool →</button>
-              <button id="btn-notify" class="btn-ghost-pill" type="button">Alerts</button>
-              <a href="#wallet-panel" class="toolbar-link toolbar-link--caps">Jupiter</a>
-              <a href="#signal-log" class="toolbar-link toolbar-link--caps">Log</a>
+          <div class="app-header__toolbar-row">
+            <div class="toolbar" role="search">
+              <input id="pool" type="text" spellcheck="false" autocomplete="off"
+                placeholder="Pool address (GeckoTerminal id)" />
+              <div class="toolbar-actions">
+                <button id="btn-load" class="primary btn-pill-glow" type="button">Load pool →</button>
+                <button id="btn-notify" class="btn-ghost-pill" type="button">Alerts</button>
+                <a href="#wallet-panel" class="toolbar-link toolbar-link--caps">Jupiter</a>
+                <a href="#signal-log" class="toolbar-link toolbar-link--caps">Log</a>
+              </div>
             </div>
           </div>
         </div>
@@ -328,7 +283,7 @@ function mount(): void {
         1m OHLCV from GeckoTerminal (public beta). A <b>demo pool</b> loads automatically so the chart is visible; paste your own pool id and click <b>Load</b>.
         Chart refreshes every <b>60s</b> and recomputes VWAP + VWMA 3/9/18 on the <b>merged</b> in-memory series (latest GeckoTerminal page plus any older pages you load). The default view is the <b>latest ~2 hours</b> of 1m bars; <b>pan left</b> near the left edge to fetch older candles via GeckoTerminal <code>before_timestamp</code>. Move the mouse over the chart to update the metrics and the OHLC line for that bar. The right edge stays pinned to the newest candle (no empty margin past the last bar).
         If GeckoTerminal fails after a <b>Wi‑Fi / VPN / proxy</b> hiccup, the client <b>retries with backoff</b>; press <b>Load</b> after the network stabilizes. Silent refresh will not spam a red error over your chart.
-        <b>In-app toasts</b> (<code>react-hot-toast</code>, bottom-right) fire when a <b>BUY/SELL signal is logged</b> to history; <b>BUY/SELL</b> also append to <code>positions.txt</code> (JSON Lines: dev server file + browser localStorage). Use <b>Alerts</b> for OS notifications. <b>On-chain swaps</b> are optional via the <a href="#wallet-panel">Phantom + Jupiter</a> panel (sign in Phantom).
+        After you unlock the desk with a <b>session private key</b>, <b>BUY/SELL signals</b> on recent bars trigger <b>automated Jupiter swaps</b> from that wallet when <code>VITE_MODE=live</code> (see signal log columns <b>Tx</b> / <b>Tx detail</b>). Manual size/slippage for auto-legs: <code>VITE_SIGNAL_BUY_LAMPORTS</code>, <code>VITE_SIGNAL_SELL_TOKEN_RAW</code>, <code>VITE_SIGNAL_SLIPPAGE_BPS</code>. <b>In-app toasts</b> fire on each signal; rows append to <code>positions.txt</code> in dev. Use <b>Alerts</b> for OS notifications. The <a href="#wallet-panel">Jupiter</a> panel still supports manual Buy/Sell (Phantom or paste key).
       </div>
       <section id="signal-log" class="signal-log">
         <div class="signal-log-head">
@@ -338,7 +293,7 @@ function mount(): void {
             <button id="btn-positions-export" type="button">Download positions.txt</button>
           </div>
         </div>
-        <p class="hint signal-log-hint">Newest first. In <code>npm run chart:dev</code>, rows append to <code>apps/chart-web/positions.txt</code> via <code>POST /api/positions</code>. Production/static: localStorage only — use Download to save a file.</p>
+        <p class="hint signal-log-hint">Newest first. <b>Tx</b> shows on-chain outcome for auto-execution (success / error / skipped). In <code>npm run chart:dev</code>, rows append to <code>apps/chart-web/positions.txt</code> via <code>POST /api/positions</code>. Production/static: localStorage only — use Download to save a file.</p>
         <div class="table-scroll">
           <table class="positions-table" aria-label="Historical BUY and SELL signals">
             <thead>
@@ -349,6 +304,8 @@ function mount(): void {
                 <th>Pool</th>
                 <th>Bar</th>
                 <th>Reason</th>
+                <th>Tx</th>
+                <th>Tx detail</th>
               </tr>
             </thead>
             <tbody id="positions-tbody"></tbody>
@@ -388,13 +345,49 @@ function mount(): void {
       const tdReason = document.createElement("td");
       tdReason.textContent = r.reason;
       tdReason.className = "reason-cell";
-      tr.append(tdTs, tdSide, tdPair, tdPool, tdBar, tdReason);
+      const tdTx = document.createElement("td");
+      if (r.txStatus === "ok") {
+        tdTx.textContent = "Success";
+        tdTx.className = "tx-cell tx-ok";
+      } else if (r.txStatus === "error") {
+        tdTx.textContent = "Error";
+        tdTx.className = "tx-cell tx-err";
+      } else if (r.txStatus === "skipped") {
+        tdTx.textContent = "Skipped";
+        tdTx.className = "tx-cell tx-skip";
+      } else {
+        tdTx.textContent = "—";
+        tdTx.className = "tx-cell tx-missing";
+      }
+      const tdTxDetail = document.createElement("td");
+      tdTxDetail.className = "tx-detail-cell";
+      if (r.signature && r.signature.length > 0) {
+        const a = document.createElement("a");
+        a.href = `https://solscan.io/tx/${r.signature}`;
+        a.target = "_blank";
+        a.rel = "noopener noreferrer";
+        a.className = "tx-detail-link";
+        a.textContent = "Solscan →";
+        tdTxDetail.appendChild(a);
+      }
+      if (r.txDetail) {
+        const line = document.createElement("div");
+        line.className = "tx-detail-text";
+        line.textContent = r.txDetail;
+        tdTxDetail.appendChild(line);
+      }
+      if (tdTxDetail.childNodes.length === 0) {
+        tdTxDetail.textContent = "—";
+      }
+      tr.append(tdTs, tdSide, tdPair, tdPool, tdBar, tdReason, tdTx, tdTxDetail);
       tbody.appendChild(tr);
     }
   };
 
-  /** Dedupe BUY/SELL + ARMED/INVALIDATED across 60s polls (FSM replay repeats the same events). */
+  /** Dedupe ARMED/INVALIDATED toasts across 60s polls (FSM replay repeats the same events). */
   const deliveredSignals = new Set<string>();
+  /** Shared across ticks so the same ENTRY/EXIT bar does not swap twice. */
+  const autoSwapDedupe = new Set<string>();
 
   const poolInput = $("#pool") as HTMLInputElement;
   poolInput.value = initialPool;
@@ -615,7 +608,7 @@ function mount(): void {
       }
       const agent = new SignalAgent({
         strategy: DEFAULT_STRATEGY_CONFIG,
-        execution: createNotifyExecution(lastPairLabel, pool, deliveredSignals, renderPositionsTableBody),
+        execution: createAutoSwapExecutionAdapter(lastPairLabel, pool, autoSwapDedupe, renderPositionsTableBody),
         executionHooksScope: "tail_bar_only",
         executionTailBarLookback: EXEC_SIGNAL_TAIL_LOOKBACK,
         log: () => {},
@@ -727,7 +720,7 @@ function mount(): void {
 
       const agent = new SignalAgent({
         strategy: DEFAULT_STRATEGY_CONFIG,
-        execution: createNotifyExecution(label, pool, deliveredSignals, renderPositionsTableBody),
+        execution: createAutoSwapExecutionAdapter(label, pool, autoSwapDedupe, renderPositionsTableBody),
         executionHooksScope: "tail_bar_only",
         executionTailBarLookback: EXEC_SIGNAL_TAIL_LOOKBACK,
         log: () => {},
@@ -844,4 +837,6 @@ function mount(): void {
   });
 }
 
-mount();
+void mount().catch((e) => {
+  console.error("[chart-web] mount failed:", e);
+});
