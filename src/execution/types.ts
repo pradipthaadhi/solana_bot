@@ -7,18 +7,28 @@ import type { OperationalMode } from "../scope/stage0.js";
 
 export type SolanaCluster = "mainnet-beta" | "devnet";
 
-/** Jupiter v6 quote API (legacy but stable for integrations). */
-export const JUPITER_V6_QUOTE_API_DEFAULT = "https://quote-api.jup.ag/v6";
+/**
+ * Jupiter Swap API v1 base (`GET …/quote`, `POST …/swap`).
+ * @see https://dev.jup.ag/docs — public example host `https://api.jup.ag/swap/v1`.
+ */
+export const JUPITER_V6_QUOTE_API_DEFAULT = "https://api.jup.ag/swap/v1";
 
 /** Wrapped SOL mint (mainnet / devnet same address). */
 export const NATIVE_SOL_MINT = "So11111111111111111111111111111111111111112";
 
+export type JupiterSwapMode = "ExactIn" | "ExactOut";
+
 export interface JupiterQuoteParams {
   inputMint: string;
   outputMint: string;
-  /** Raw base units (lamports for SOL / WSOL path). */
+  /**
+   * `ExactIn` (default): raw units of `inputMint` to swap.
+   * `ExactOut`: raw units of `outputMint` to receive (e.g. lamports of SOL when `outputMint` is wrapped SOL).
+   */
   amount: bigint;
   slippageBps: number;
+  /** Omit or `ExactIn` for standard quotes; `ExactOut` sets Jupiter `swapMode=ExactOut`. */
+  swapMode?: JupiterSwapMode;
   /** When true, reduces routing complexity (useful in tests / debugging). */
   onlyDirectRoutes?: boolean;
 }

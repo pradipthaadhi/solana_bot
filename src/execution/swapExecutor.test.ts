@@ -41,6 +41,7 @@ describe("executeJupiterSwap (Stage 5.4–5.5)", () => {
     const sendRawTransaction = vi.fn();
 
     const conn = {
+      getSlot: vi.fn().mockResolvedValue(123),
       getLatestBlockhash: vi.fn().mockResolvedValue({ blockhash: "11111111111111111111111111111111", lastValidBlockHeight: 99 }),
       simulateTransaction: vi.fn().mockResolvedValue({ value: { err: null, logs: [] }, context: { slot: 1 } }),
       sendRawTransaction,
@@ -63,6 +64,77 @@ describe("executeJupiterSwap (Stage 5.4–5.5)", () => {
 
     expect(signTransaction).not.toHaveBeenCalled();
     expect(sendRawTransaction).not.toHaveBeenCalled();
+  });
+
+  it("ExactOut skips pre-quote amount cap (amount is output units)", async () => {
+    vi.spyOn(jupiter, "fetchJupiterQuote").mockResolvedValue({ inAmount: "50" });
+    vi.spyOn(jupiter, "fetchJupiterSwapTransaction").mockResolvedValue({ swapTransaction: sampleSignedSwapTxB64() });
+    const conn = {
+      getLatestBlockhash: vi.fn().mockResolvedValue({ blockhash: "11111111111111111111111111111111", lastValidBlockHeight: 99 }),
+      simulateTransaction: vi.fn().mockResolvedValue({ value: { err: null, logs: [] }, context: { slot: 1 } }),
+    } as unknown as Connection;
+    await executeJupiterSwap({
+      connection: conn,
+      userPublicKeyBase58: Keypair.generate().publicKey.toBase58(),
+      quoteParams: {
+        inputMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        outputMint: "So11111111111111111111111111111111111111112",
+        amount: 9_000_000_000_000_000_000n,
+        slippageBps: 50,
+        swapMode: "ExactOut",
+      },
+      rails: { killSwitchEngaged: false, maxInputRaw: 100n },
+      signTransaction: async (tx) => tx,
+      simulateOnly: true,
+      skipRpcHealthCheck: true,
+    });
+    expect(conn.simulateTransaction).toHaveBeenCalled();
+  });
+
+  it("preflightSplBalanceRaw rejects when quoted input exceeds wallet balance", async () => {
+    vi.spyOn(jupiter, "fetchJupiterQuote").mockResolvedValue({ inAmount: "200" });
+    await expect(
+      executeJupiterSwap({
+        connection: {} as Connection,
+        userPublicKeyBase58: Keypair.generate().publicKey.toBase58(),
+        quoteParams: {
+          inputMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          outputMint: "So11111111111111111111111111111111111111112",
+          amount: 1_000_000n,
+          slippageBps: 50,
+          swapMode: "ExactOut",
+        },
+        rails: { killSwitchEngaged: false, maxInputRaw: 999n },
+        signTransaction: async (tx) => tx,
+        simulateOnly: true,
+        skipRpcHealthCheck: true,
+        preflightSplBalanceRaw: 150n,
+      }),
+    ).rejects.toThrow(/INSUFFICIENT_TOKEN_BALANCE/);
+  });
+
+  it("skipRpcHealthCheck avoids getSlot when connection mock has no RPC methods", async () => {
+    vi.spyOn(jupiter, "fetchJupiterQuote").mockResolvedValue({ inAmount: "100" });
+    vi.spyOn(jupiter, "fetchJupiterSwapTransaction").mockResolvedValue({ swapTransaction: sampleSignedSwapTxB64() });
+    const conn = {
+      getLatestBlockhash: vi.fn().mockResolvedValue({ blockhash: "11111111111111111111111111111111", lastValidBlockHeight: 99 }),
+      simulateTransaction: vi.fn().mockResolvedValue({ value: { err: null, logs: [] }, context: { slot: 1 } }),
+    } as unknown as Connection;
+    await executeJupiterSwap({
+      connection: conn,
+      userPublicKeyBase58: Keypair.generate().publicKey.toBase58(),
+      quoteParams: {
+        inputMint: "So11111111111111111111111111111111111111112",
+        outputMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        amount: 1n,
+        slippageBps: 50,
+      },
+      rails: { killSwitchEngaged: false, maxInputRaw: 999n },
+      signTransaction: async (tx) => tx,
+      simulateOnly: true,
+      skipRpcHealthCheck: true,
+    });
+    expect(conn.simulateTransaction).toHaveBeenCalled();
   });
 
   it("throws before Jupiter when kill switch is engaged", async () => {
@@ -99,6 +171,7 @@ describe("executeJupiterSwap (Stage 5.4–5.5)", () => {
     const confirmTransaction = vi.fn().mockResolvedValue({ value: { err: null }, context: { slot: 2 } });
 
     const conn = {
+      getSlot: vi.fn().mockResolvedValue(123),
       getLatestBlockhash: vi.fn().mockResolvedValue({ blockhash: "11111111111111111111111111111111", lastValidBlockHeight: 99 }),
       simulateTransaction: vi.fn().mockResolvedValue({ value: { err: null, logs: [] }, context: { slot: 1 } }),
       sendRawTransaction,
@@ -130,7 +203,8 @@ describe("executeJupiterSwap (Stage 5.4–5.5)", () => {
 
     const signTransaction = vi.fn(async (tx: VersionedTransaction) => tx);
     const conn = {
-      getLatestBlockhash: vi.fn(),
+      getSlot: vi.fn().mockResolvedValue(123),
+      getLatestBlockhash: vi.fn().mockResolvedValue({ blockhash: "11111111111111111111111111111111", lastValidBlockHeight: 99 }),
       simulateTransaction: vi.fn().mockResolvedValue({ value: { err: null, logs: [] }, context: { slot: 1 } }),
       sendRawTransaction: vi.fn(),
       confirmTransaction: vi.fn(),

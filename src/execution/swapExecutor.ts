@@ -1,12 +1,14 @@
 /**
- * Stage 5.4–5.5 — Jupiter v6 quote → swap transaction → simulate → optional broadcast.
+ * Stage 5.4–5.5 — Jupiter quote → swap transaction → simulate → optional broadcast.
  * Jupiter routing is **mainnet-centric**; use a mainnet RPC endpoint in production.
  *
  * @see docs/STAGE8_RISK_AND_COMPLIANCE.md — execution risk, caps, and responsible use (not legal advice).
  */
 
 import {
+  AddressLookupTableAccount,
   Connection,
+  TransactionMessage,
   VersionedTransaction,
   type RpcResponseAndContext,
   type SimulatedTransactionResponse,
@@ -28,6 +30,18 @@ export interface ExecuteJupiterSwapParams {
   jupiterBaseUrl?: string;
   fetchFn?: typeof fetch;
   signal?: AbortSignal;
+  /**
+   * When set, after quote ensures Jupiter `inAmount` does not exceed this balance (same mint as `quoteParams.inputMint`).
+   * Use on token→SOL sells to reject before swap build when the wallet cannot fund the quoted input.
+   */
+  preflightSplBalanceRaw?: bigint;
+  /**
+   * When true, skips `getSlot` RPC liveness check (browser + public RPC often stalls or 403s).
+   * `simulateTransaction` still validates the endpoint. Prefer false for headless / paid RPC.
+   */
+  skipRpcHealthCheck?: boolean;
+  /** Override default RPC health timeout (ms). */
+  rpcHealthTimeoutMs?: number;
 }
 
 export interface ExecuteJupiterSwapResult {
@@ -42,6 +56,50 @@ function toBufferFromSwapTxBase64(b64: string): Uint8Array {
     return globalThis.Buffer.from(b64, "base64");
   }
   return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+}
+
+/**
+ * Jupiter embeds a `recentBlockhash` at swap-build time; it is often stale before RPC simulation.
+ * `@solana/web3.js` `simulateTransaction(VersionedTransaction, { replaceRecentBlockhash: true })` does **not**
+ * forward `replaceRecentBlockhash` to the RPC (only `encoding` / `commitment` / `innerInstructions`), so we must
+ * rebuild the v0 message with `getLatestBlockhash` from the same `Connection` used to simulate/send.
+ */
+async function versionedTransactionWithLatestBlockhash(
+  connection: Connection,
+  tx: VersionedTransaction,
+): Promise<VersionedTransaction> {
+  const msg = tx.message;
+  const lookups = "addressTableLookups" in msg ? (msg.addressTableLookups ?? []) : [];
+  let addressLookupTableAccounts: AddressLookupTableAccount[] = [];
+  if (lookups.length > 0) {
+    const loaded = await Promise.all(
+      lookups.map((lookup) =>
+        connection.getAddressLookupTable(lookup.accountKey, { commitment: "confirmed" }),
+      ),
+    );
+    addressLookupTableAccounts = loaded
+      .map((r) => r.value)
+      .filter((a): a is AddressLookupTableAccount => a !== null);
+    if (addressLookupTableAccounts.length !== lookups.length) {
+      throw new Error(
+        "SIMULATION_SETUP: could not load all address lookup tables from RPC (needed to refresh blockhash).",
+      );
+    }
+  }
+
+  const decompiled =
+    addressLookupTableAccounts.length > 0
+      ? TransactionMessage.decompile(msg, { addressLookupTableAccounts })
+      : TransactionMessage.decompile(msg);
+
+  const { blockhash } = await connection.getLatestBlockhash("confirmed");
+  const compiled = new TransactionMessage({
+    payerKey: decompiled.payerKey,
+    recentBlockhash: blockhash,
+    instructions: decompiled.instructions,
+  }).compileToV0Message(addressLookupTableAccounts.length > 0 ? addressLookupTableAccounts : undefined);
+
+  return new VersionedTransaction(compiled);
 }
 
 /**
@@ -61,14 +119,25 @@ function pickJupiterOpts(params: ExecuteJupiterSwapParams): {
 
 export async function executeJupiterSwap(params: ExecuteJupiterSwapParams): Promise<ExecuteJupiterSwapResult> {
   assertTradingAllowed(params.rails);
-  assertWithinMaxInput(params.quoteParams.amount, params.rails.maxInputRaw);
+  /** For ExactOut, `amount` is output-side units, not wallet spend — cap applies to quoted `inAmount` only. */
+  if (params.quoteParams.swapMode !== "ExactOut") {
+    assertWithinMaxInput(params.quoteParams.amount, params.rails.maxInputRaw);
+  }
 
   const jupiterOpts = pickJupiterOpts(params);
   const quote = await fetchJupiterQuote(params.quoteParams, jupiterOpts);
   const quotedIn = readQuotedInputAmount(quote);
   assertWithinMaxInput(quotedIn, params.rails.maxInputRaw);
+  if (params.preflightSplBalanceRaw !== undefined && quotedIn > params.preflightSplBalanceRaw) {
+    throw new Error(
+      `INSUFFICIENT_TOKEN_BALANCE: need ${quotedIn.toString()} raw units of input mint, wallet has ${params.preflightSplBalanceRaw.toString()}. ` +
+        "Add more of the sell token or lower the target SOL out (lamports).",
+    );
+  }
 
-  await assertRpcHealthy(params.connection);
+  if (params.skipRpcHealthCheck !== true) {
+    await assertRpcHealthy(params.connection, params.rpcHealthTimeoutMs);
+  }
 
   const { swapTransaction } = await fetchJupiterSwapTransaction(
     {
@@ -82,12 +151,11 @@ export async function executeJupiterSwap(params: ExecuteJupiterSwapParams): Prom
   );
 
   const bytes = toBufferFromSwapTxBase64(swapTransaction);
-  const tx = VersionedTransaction.deserialize(bytes);
+  let tx = VersionedTransaction.deserialize(bytes);
+  tx = await versionedTransactionWithLatestBlockhash(params.connection, tx);
 
   const simulation = await params.connection.simulateTransaction(tx, {
-    sigVerify: false,
-    commitment: "processed",
-    replaceRecentBlockhash: true,
+    commitment: "confirmed",
   });
   if (simulation.value.err) {
     const logs = simulation.value.logs?.join("\n") ?? "";
@@ -101,6 +169,7 @@ export async function executeJupiterSwap(params: ExecuteJupiterSwapParams): Prom
   const bc = params.broadcast ?? { broadcast: true };
   assertOnChainBroadcastAllowed(params.rails, bc.broadcast);
 
+  tx = await versionedTransactionWithLatestBlockhash(params.connection, tx);
   const signed = await params.signTransaction(tx);
 
   if (!bc.broadcast) {
