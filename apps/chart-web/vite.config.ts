@@ -223,6 +223,69 @@ function jupiterDevProxyPlugin(targetRaw: string, swapApiKey: string): Plugin {
 }
 
 /** Dev-only: append/read `positions.txt` for BUY/SELL JSONL (static hosting has no server write). */
+/**
+ * Dev server port (Vite). Default 5713 matches common VPS + Caddy reverse_proxy targets.
+ * Override with `CHART_WEB_PORT` in `apps/chart-web/.env` or the environment.
+ */
+function chartWebDevPort(fileEnv: Record<string, string>): number {
+  const raw = (fileEnv.CHART_WEB_PORT ?? process.env.CHART_WEB_PORT ?? "").trim();
+  if (raw === "") {
+    return 5713;
+  }
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 && n < 65536 ? n : 5713;
+}
+
+/**
+ * Hosts allowed in the `Host` header (required when opening the dev server via a real domain behind Caddy).
+ * - unset: Vite default (localhost-style only) — use for pure localhost access.
+ * - comma-separated hostnames: e.g. `dexfilter.xyz,www.dexfilter.xyz`
+ * - `all` or `*`: allow any host (convenient but broad; dev-only).
+ */
+function chartWebAllowedHosts(fileEnv: Record<string, string>): true | string[] | undefined {
+  const raw = (fileEnv.CHART_WEB_ALLOWED_HOSTS ?? process.env.CHART_WEB_ALLOWED_HOSTS ?? "").trim();
+  if (raw === "") {
+    return undefined;
+  }
+  if (raw === "all" || raw === "*") {
+    return true as const;
+  }
+  const hosts = raw
+    .split(/[,;]+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  return hosts.length > 0 ? hosts : undefined;
+}
+
+/**
+ * When the app is served at a public URL (e.g. `https://dexfilter.xyz` via Caddy), set
+ * `CHART_WEB_PUBLIC_ORIGIN` so HMR uses `wss` on port 443 instead of trying to reach :5713 from the browser.
+ */
+function chartWebHmrConfig(
+  fileEnv: Record<string, string>,
+): { protocol: "ws" | "wss"; host: string; clientPort: number } | undefined {
+  const raw = (fileEnv.CHART_WEB_PUBLIC_ORIGIN ?? process.env.CHART_WEB_PUBLIC_ORIGIN ?? "").trim();
+  if (raw === "") {
+    return undefined;
+  }
+  try {
+    const u = new URL(raw);
+    const https = u.protocol === "https:";
+    const port =
+      u.port === "" ? (https ? 443 : 80) : Number(u.port);
+    if (!Number.isFinite(port)) {
+      return undefined;
+    }
+    return {
+      protocol: https ? "wss" : "ws",
+      host: u.hostname,
+      clientPort: port,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
 function positionsFileApi(): Plugin {
   const positionsFile = path.join(chartRoot, "positions.txt");
   return {
@@ -285,6 +348,10 @@ export default defineConfig(({ mode }) => {
   const jupiterSwapApiKey =
     fileEnv.JUPITER_SWAP_API_KEY?.trim() ?? process.env.JUPITER_SWAP_API_KEY?.trim() ?? "";
 
+  const devPort = chartWebDevPort(fileEnv);
+  const allowedHosts = chartWebAllowedHosts(fileEnv);
+  const hmrPublic = chartWebHmrConfig(fileEnv);
+
   return {
     plugins: [jupiterDevProxyPlugin(jupiterTargetRaw, jupiterSwapApiKey), positionsFileApi()],
     resolve: {
@@ -298,6 +365,10 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       host: "0.0.0.0",
+      port: devPort,
+      strictPort: (fileEnv.CHART_WEB_STRICT_PORT ?? process.env.CHART_WEB_STRICT_PORT ?? "").trim() === "1",
+      ...(allowedHosts !== undefined ? { allowedHosts } : {}),
+      ...(hmrPublic !== undefined ? { hmr: hmrPublic } : {}),
       proxy: {
         "/gt-api": {
           target: "https://api.geckoterminal.com",

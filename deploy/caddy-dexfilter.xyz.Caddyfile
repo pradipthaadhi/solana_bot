@@ -1,0 +1,37 @@
+# Example Caddy config: HTTPS for chart-web (Phantom needs a secure origin).
+#
+# Prerequisites:
+#   - DNS A/AAAA for dexfilter.xyz (and optionally www) → your VPS public IP
+#   - Firewall: allow 80 + 443 from the internet; keep Vite on 127.0.0.1:5713 (no public bind needed for :5713)
+#   - On the VPS: `npm run chart:dev` with apps/chart-web/.env containing:
+#       CHART_WEB_ALLOWED_HOSTS=dexfilter.xyz,www.dexfilter.xyz
+#       CHART_WEB_PUBLIC_ORIGIN=https://dexfilter.xyz
+#     (optional) CHART_WEB_PORT=5713 — default in vite.config.ts is already 5713
+#
+# Install Caddy (Debian/Ubuntu example):
+#   sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https curl
+#   curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+#   curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
+#   sudo apt update && sudo apt install caddy
+#
+# Use this file:
+#   sudo cp deploy/caddy-dexfilter.xyz.Caddyfile /etc/caddy/Caddyfile
+#   sudo caddy validate --config /etc/caddy/Caddyfile
+#   sudo systemctl reload caddy
+#
+# Local dev without Caddy: open http://127.0.0.1:5713 (or http://localhost:5713) — same Vite port.
+#
+# Optional global block (place above site blocks if you use it):
+# {
+#     email you@example.com
+# }
+
+dexfilter.xyz {
+	encode gzip zstd
+	reverse_proxy 127.0.0.1:5713
+}
+
+# Optional: redirect www → apex
+www.dexfilter.xyz {
+	redir https://dexfilter.xyz{uri} permanent
+}
