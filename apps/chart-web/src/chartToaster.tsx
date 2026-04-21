@@ -11,6 +11,7 @@ const ACCENT_BUY = "#26a69a";
 const ACCENT_SELL = "#ef5350";
 const ACCENT_NEUTRAL = "#6b7c8f";
 const ACCENT_ERR = "#e57373";
+const ACCENT_WALLET = "#14f195";
 
 function ToastCard({ t, title, body, accent }: { t: Toast; title: string; body: string; accent: string }) {
   return (
@@ -130,4 +131,23 @@ export function chartToastSwapDone(
   const accent = leg === "BUY" ? ACCENT_BUY : ACCENT_SELL;
   const title = `${leg} ${mode === "simulate" ? "simulated" : "complete"}`;
   pushCard(title, detail, accent, duration ?? (mode === "broadcast" ? 18_000 : 10_000));
+}
+
+export function chartToastWalletConnected(addressBase58: string, detail?: string): void {
+  const short = `${addressBase58.slice(0, 4)}…${addressBase58.slice(-4)}`;
+  pushCard(
+    "Phantom connected",
+    detail ? `${short}\n${detail}` : `${short}\nReady to quote and sign swaps.`,
+    ACCENT_WALLET,
+    12_000,
+  );
+}
+
+export function chartToastWalletConnectFailed(message: string): void {
+  pushCard("Wallet not connected", message, ACCENT_ERR, 14_000);
+}
+
+export function chartToastWalletAccountSwitched(addressBase58: string): void {
+  const short = `${addressBase58.slice(0, 4)}…${addressBase58.slice(-4)}`;
+  pushCard("Active account", short, ACCENT_NEUTRAL, 6000);
 }
