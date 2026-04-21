@@ -32,6 +32,7 @@ export interface BotEnv {
 }
 
 const DEFAULT_VS = "usd";
+/** Fallback only; production and browser UIs should set RPC_URL / VITE_RPC_URL to a private HTTPS RPC. */
 const DEFAULT_RPC = "https://api.mainnet-beta.solana.com";
 const DEFAULT_MAX_INPUT_RAW = 50_000n;
 

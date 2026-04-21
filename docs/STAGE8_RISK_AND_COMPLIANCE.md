@@ -58,7 +58,7 @@ If TradingView, an exchange, and GeckoTerminal disagree, **all three can be inte
 |------|--------|------------------|
 | Hot wallet / key exposure | Headless signing is dangerous at scale. | `src/execution/devKeypair.ts`, `SIGNING_MODE` |
 | Wrong network or mint | User error → lost funds or stuck tokens. | `botEnv`, mint fields |
-| RPC abuse or failure | Public RPCs rate-limit; sends fail under load. | `assertRpcHealthy`, paid RPC in prod |
+| RPC abuse or failure | Public mainnet RPCs rate-limit and often return **403** to browsers; use a private HTTPS provider (e.g. Alchemy CU-based free tier, ~25 RPS class plans — see https://www.alchemy.com/pricing ). | `assertRpcHealthy`, `VITE_RPC_URL` / `RPC_URL`, paid RPC in prod |
 | Kill switch forgotten | Trades continue when they should not. | `SOL_BOT_KILL_SWITCH`, UI checkbox |
 | `MODE` mismatch | Accidental “live” broadcast. | `MODE`, runbook |
 

@@ -255,7 +255,7 @@ Define the **exact venue** (Jupiter aggregator, Raydium, PumpSwap-compatible rou
 | `COINGECKO_OHLC_DAYS` | `1` or `2` for 30m granularity |
 | `TOKEN_MINT` | SPL mint under test |
 | `QUOTE_MINT` | Usually wrapped SOL mint |
-| `RPC_URL` | Your provider URL |
+| `RPC_URL` | Private mainnet HTTPS RPC (e.g. Alchemy `https://solana-mainnet.g.alchemy.com/v2/...`); avoid public `api.mainnet-beta` for sustained use |
 | `MODE` | `replay` / `paper` / `live` |
 | `SIGNING_MODE` | `phantom_ui` / `headless_dev` |
 

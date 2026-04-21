@@ -6,7 +6,7 @@ interface ImportMetaEnv {
   readonly VITE_SOL_BOT_MAX_INPUT_RAW?: string;
   readonly VITE_MODE?: string;
   readonly VITE_SOL_BOT_KILL_SWITCH?: string;
-  /** Override Jupiter v6 API root (default: proxied `/jupiter-api` locally, else https://quote-api.jup.ag/v6). */
+  /** Override Jupiter Swap API v1 root (default: proxied `/jupiter-api` locally, else https://api.jup.ag/swap/v1). */
   readonly VITE_JUPITER_API_BASE?: string;
 }
 

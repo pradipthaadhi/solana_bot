@@ -9,7 +9,7 @@
 | `COINGECKO_OHLC_DAYS` | `1` or `2` (public API → ~30m bars) |
 | `TOKEN_MINT` | SPL mint under test |
 | `QUOTE_MINT` | Usually wrapped SOL (`So1111…`) |
-| `RPC_URL` | HTTP(S) Solana RPC |
+| `RPC_URL` | Private mainnet HTTPS Solana RPC (e.g. Alchemy); public `api.mainnet-beta` rate-limits / 403s |
 | `MODE` | `replay` \| `paper` \| `live` — controls **on-chain broadcast guard** in `executeJupiterSwap` |
 | `SIGNING_MODE` | `phantom_ui` \| `headless_dev` — must align with how you sign |
 | `SOL_BOT_MAX_INPUT_RAW` | Optional per-leg cap (bigint string) for `SafetyRails.maxInputRaw` |

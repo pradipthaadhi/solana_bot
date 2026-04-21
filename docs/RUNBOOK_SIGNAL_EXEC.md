@@ -20,7 +20,7 @@ This path runs **`SignalAgent`** on **GeckoTerminal 1m OHLCV** (same pool id as 
 export SIGNAL_EXEC_ENABLED=1
 export SIGNAL_EXEC_POOL_ADDRESS="<GeckoTerminal pool id>"
 export TOKEN_MINT="<SPL mint for Jupiter legs>"
-export RPC_URL="<your paid mainnet RPC recommended>"
+export RPC_URL="<private mainnet HTTPS RPC — e.g. Alchemy https://www.alchemy.com/solana ; avoid public api.mainnet-beta for sustained use>"
 export MODE=paper                    # safe default
 export SIGNAL_EXEC_SIMULATE_ONLY=1 # default if unset — Jupiter quote + simulate only
 export SOL_BOT_MAX_INPUT_RAW=5000000

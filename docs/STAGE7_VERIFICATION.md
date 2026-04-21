@@ -42,7 +42,7 @@ npm test
 export SOL_BOT_STAGE7_CHAIN_TEST=1
 # optional overrides:
 # export STAGE7_DEVNET_RPC_URL=https://api.devnet.solana.com
-# export STAGE7_MAINNET_RPC_URL=https://your-paid-rpc.example
+# export STAGE7_MAINNET_RPC_URL=https://solana-mainnet.g.alchemy.com/v2/<KEY>   # or any private mainnet HTTPS RPC
 npm test
 ```
 
