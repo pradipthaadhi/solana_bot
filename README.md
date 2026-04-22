@@ -30,7 +30,7 @@ npm run chart:install
 npm run chart:dev
 ```
 
-Then open the printed URL. A **demo Raydium SOL/USDC pool** loads automatically so the chart is not blank; you can paste any **Solana pool address** (GeckoTerminal OHLCV pool id) and click **Load**. Optional: `http://localhost:5173/?pool=<POOL_ADDRESS>` to skip the demo.
+Then open the printed URL. A **default GeckoTerminal-indexed pool** loads automatically so the chart is not blank; you can paste any **Solana pool address** (GeckoTerminal OHLCV pool id) and click **Load**. Optional: `http://localhost:5173/?pool=<POOL_ADDRESS>` to skip the demo.
 
 For **Phantom + Jupiter** simulation and sends, set **`VITE_RPC_URL`** in `apps/chart-web/.env` to a **private** Solana HTTPS RPC (e.g. [Alchemy Solana](https://www.alchemy.com/solana) — see [pricing](https://www.alchemy.com/pricing)); the public `api.mainnet-beta.solana.com` endpoint often returns **HTTP 403** from the browser.
 
