@@ -10,7 +10,7 @@ export interface Ohlcv {
   close: number;
   /** Per-bar volume; may be synthesized (e.g. 1) until Stage 2 merges real volumes. */
   volume: number;
-  /** Unix ms at candle close (CoinGecko OHLC uses close time). */
+  /** Bar id as Unix ms (GeckoTerminal 1m OHLCV uses **bucket open** UTC = `timestamp_sec * 1000`; strategy still evaluates one closed bar per row in time order). */
   timeMs: number;
 }
 

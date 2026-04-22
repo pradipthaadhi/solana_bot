@@ -18,6 +18,7 @@ import {
 import { readDeskEnv } from "./chartWebEnv.js";
 import { resolveJupiterApiBaseUrl } from "./jupiterApiBaseUrl.js";
 import { parseSecretKeyInput } from "./secretKeyParse.js";
+import { getSessionTradingKeypair, setSessionTradingKeypair } from "./sessionTradingKey.js";
 
 type PhantomLike = {
   isPhantom?: boolean;
@@ -274,12 +275,49 @@ export function mountWalletTrading(root: HTMLElement): void {
   inpSlip.value = "100";
   mkField("Slippage (bps)", inpSlip);
 
+  const secretFieldWrap = el(grid, "div", "wallet-field wallet-field--secret");
+  const secretLabel = el(secretFieldWrap, "label", "wallet-field-label");
+  secretLabel.htmlFor = "wallet-inp-secret";
+  secretLabel.textContent = "Secret key (BUY; leave blank to use the desk session key from unlock)";
+  const secretTooltip = el(secretFieldWrap, "div", "wallet-secret-tooltip");
+  secretTooltip.id = "wallet-secret-tooltip";
+  secretTooltip.setAttribute("role", "tooltip");
+  secretTooltip.setAttribute("aria-live", "polite");
+  secretTooltip.hidden = true;
+  secretTooltip.textContent =
+    "If empty, manual BUY uses the private key you entered at desk unlock. Paste here to sign from a different key.";
   const inpSecret = document.createElement("input");
   inpSecret.type = "password";
+  inpSecret.className = "wallet-secret-input";
+  inpSecret.id = "wallet-inp-secret";
   inpSecret.spellcheck = false;
   inpSecret.autocomplete = "off";
   inpSecret.placeholder = "Base58 or [byte,…] — required for Buy auto-sign";
-  mkField("Secret key (BUY only — auto-sign, never share or store)", inpSecret);
+  secretFieldWrap.appendChild(inpSecret);
+
+  const clearSecretKeyError = (): void => {
+    secretFieldWrap.classList.remove("wallet-field--secret-error");
+    inpSecret.classList.remove("wallet-secret-input--error");
+    inpSecret.removeAttribute("aria-invalid");
+    inpSecret.removeAttribute("aria-describedby");
+    secretTooltip.hidden = true;
+  };
+
+  const showSecretKeyRequired = (): void => {
+    secretFieldWrap.classList.add("wallet-field--secret-error");
+    inpSecret.classList.add("wallet-secret-input--error");
+    inpSecret.setAttribute("aria-invalid", "true");
+    inpSecret.setAttribute("aria-describedby", secretTooltip.id);
+    secretTooltip.hidden = false;
+    inpSecret.focus();
+    inpSecret.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  };
+
+  inpSecret.addEventListener("input", () => {
+    if (inpSecret.value.trim().length > 0) {
+      clearSecretKeyError();
+    }
+  });
 
   const metaRow = el(inner, "div", "wallet-meta");
   const rowSim = el(metaRow, "div", "wallet-row wallet-row-check");
@@ -287,20 +325,6 @@ export function mountWalletTrading(root: HTMLElement): void {
   chkSim.type = "checkbox";
   /** Paper/replay: default safe dry-run. Live: default off so Buy/Sell can open Phantom and broadcast. */
   chkSim.checked = env.mode !== "live";
-
-  const policy = el(metaRow, "div", "wallet-policy");
-  const refreshPolicy = (): void => {
-    const liveOk = env.mode === "live" && !env.killSwitch;
-    policy.innerHTML = "";
-    policy.appendChild(
-      Object.assign(document.createElement("span"), {
-        className: "wallet-policy-pill " + (liveOk ? "wallet-policy-live" : "wallet-policy-paper"),
-        textContent:
-          env.killSwitch ? "Kill switch ON (blocked)" : env.mode === "live" ? "VITE_MODE=live (broadcast allowed when not sim-only)" : `VITE_MODE=${env.mode} (broadcast disabled)`,
-      }),
-    );
-  };
-  refreshPolicy();
 
   const out = el(inner, "pre", "wallet-out");
   out.textContent = "Output will appear here.";
@@ -486,6 +510,12 @@ export function mountWalletTrading(root: HTMLElement): void {
       chartToastError("Phantom required", "Connect Phantom to sign SELL (token → SOL).");
       return;
     }
+    if (kind === "buy" && inpSecret.value.trim().length === 0 && getSessionTradingKeypair() === null) {
+      showSecretKeyRequired();
+      log("BUY aborted: paste a secret key, or complete desk unlock (private key on first load).");
+      return;
+    }
+    clearSecretKeyError();
     const token = inpMint.value.trim();
     if (!token) {
       log("Set TOKEN_MINT.");
@@ -508,18 +538,25 @@ export function mountWalletTrading(root: HTMLElement): void {
     if (kind === "buy") {
       const rawSecret = inpSecret.value;
       if (rawSecret.trim().length === 0) {
-        chartToastError("Private key required", "Paste your secret key to auto-sign BUY (SOL → token).");
-        log("BUY aborted: enter secret key in the field above.");
-        return;
+        const fromDesk = getSessionTradingKeypair();
+        if (fromDesk === null) {
+          showSecretKeyRequired();
+          log("BUY aborted: no session key and empty field.");
+          return;
+        }
+        buyKeypair = fromDesk;
+        setSessionTradingKeypair(fromDesk);
+      } else {
+        const parsed = parseSecretKeyInput(rawSecret);
+        if (!parsed.ok) {
+          chartToastError("Invalid private key", parsed.error);
+          log(parsed.error);
+          return;
+        }
+        buyKeypair = parsed.keypair;
+        setSessionTradingKeypair(buyKeypair);
       }
-      const parsed = parseSecretKeyInput(rawSecret);
-      if (!parsed.ok) {
-        chartToastError("Invalid private key", parsed.error);
-        log(parsed.error);
-        return;
-      }
-      buyKeypair = parsed.keypair;
-      if (pubkey !== null && !buyKeypair.publicKey.equals(pubkey)) {
+      if (buyKeypair !== null && pubkey !== null && !buyKeypair.publicKey.equals(pubkey)) {
         chartToastInfo(
           "Signing wallet",
           `Secret key address ${buyKeypair.publicKey.toBase58().slice(0, 4)}… differs from connected Phantom — BUY will use the secret key.`,
@@ -631,6 +668,7 @@ export function mountWalletTrading(root: HTMLElement): void {
       chartToastSwapDone(leg, simOnly ? "simulate" : "broadcast", shortDetail);
       if (kind === "buy") {
         inpSecret.value = "";
+        clearSecretKeyError();
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
