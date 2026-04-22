@@ -47,7 +47,7 @@ const MAX_DELIVERED_SIGNAL_KEYS = 400;
 
 type MetricsRow = Pick<BarIndicators, "vwap" | "vwma3" | "vwma9" | "vwma18">;
 
-/** Last painted view series — used by crosshair to show values at cursor time. */
+/** Last painted view series — used for the bar OHLC line and crosshair. */
 let chartViewBars: Ohlcv[] = [];
 let chartViewIndicators: MetricsRow[] = [];
 
@@ -71,6 +71,18 @@ function fmt(n: number | undefined): string {
     return `${(n / 1_000).toFixed(3)}K`;
   }
   return n.toFixed(4);
+}
+
+/** OHLC in the bar HUD line — 5 dp to match the main price scale. */
+function fmtHudOhlc(n: number): string {
+  if (!Number.isFinite(n)) {
+    return "—";
+  }
+  return n.toFixed(5);
+}
+
+function barHudLine(b: Ohlcv): string {
+  return `${new Date(b.timeMs).toISOString()} · O ${fmtHudOhlc(b.open)} · H ${fmtHudOhlc(b.high)} · L ${fmtHudOhlc(b.low)} · C ${fmtHudOhlc(b.close)}`;
 }
 
 function toCandles(bars: readonly Ohlcv[]): CandlestickData[] {
@@ -485,6 +497,24 @@ async function mount(): Promise<void> {
 
   const crosshairHudEl = $("#crosshair-hud");
 
+  const setHudToBarIndex = (idx: number): void => {
+    if (chartViewIndicators.length === 0 || chartViewBars.length === 0) {
+      crosshairHudEl.textContent = "";
+      return;
+    }
+    const clamped = Math.max(0, Math.min(idx, chartViewBars.length - 1));
+    updateMetrics(clamped, chartViewIndicators);
+    crosshairHudEl.textContent = barHudLine(chartViewBars[clamped]!);
+  };
+
+  const setHudToLastBar = (): void => {
+    if (chartViewBars.length === 0) {
+      crosshairHudEl.textContent = "";
+      return;
+    }
+    setHudToBarIndex(chartViewBars.length - 1);
+  };
+
   const barIndexFromCrosshairParam = (param: {
     time?: Time;
     logical?: Logical;
@@ -526,27 +556,16 @@ async function mount(): Promise<void> {
     if (chartViewIndicators.length === 0) {
       return;
     }
-    const lastIdx = chartViewIndicators.length - 1;
     if (!param.point) {
-      crosshairHudEl.textContent = "";
-      updateMetrics(lastIdx, chartViewIndicators);
+      setHudToLastBar();
       return;
     }
     const idx = barIndexFromCrosshairParam(param);
     if (idx === null) {
-      crosshairHudEl.textContent = "";
-      updateMetrics(lastIdx, chartViewIndicators);
+      setHudToLastBar();
       return;
     }
-    updateMetrics(idx, chartViewIndicators);
-    const row = chartViewBars[idx];
-    const c = param.seriesData.get(candles);
-    if (row && c && typeof c === "object" && "open" in c && "high" in c && "low" in c && "close" in c) {
-      const o = c as { open: number; high: number; low: number; close: number };
-      crosshairHudEl.textContent = `${new Date(row.timeMs).toISOString()} · O ${fmt(o.open)} · H ${fmt(o.high)} · L ${fmt(o.low)} · C ${fmt(o.close)}`;
-    } else {
-      crosshairHudEl.textContent = row ? `${new Date(row.timeMs).toISOString()}` : "";
-    }
+    setHudToBarIndex(idx);
   });
 
   const ro = new ResizeObserver(() => {
@@ -636,7 +655,11 @@ async function mount(): Promise<void> {
         chart.timeScale().fitContent();
       }
       const viewLastIdx = res.bars.length - 1;
-      updateMetrics(viewLastIdx >= 0 ? viewLastIdx : 0, res.indicators);
+      if (viewLastIdx >= 0) {
+        setHudToBarIndex(viewLastIdx);
+      } else {
+        crosshairHudEl.textContent = "";
+      }
     } catch (e) {
       console.warn("[chart-web] loading older OHLCV failed:", e);
     } finally {
@@ -747,9 +770,11 @@ async function mount(): Promise<void> {
       applyTimeScaleAfterData(chart, silent, res.bars.length, prevTimeRange, prevLogicalRange);
 
       const lastIdx = res.bars.length - 1;
-      const viewLastIdx = res.bars.length - 1;
-      updateMetrics(viewLastIdx >= 0 ? viewLastIdx : 0, res.indicators);
-      crosshairHudEl.textContent = "";
+      if (lastIdx >= 0) {
+        setHudToBarIndex(lastIdx);
+      } else {
+        crosshairHudEl.textContent = "";
+      }
       setChartOverlay(false);
 
       const tail = tailWindowEvents(res.strategyEvents, lastIdx, EXEC_SIGNAL_TAIL_LOOKBACK);
