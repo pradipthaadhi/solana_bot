@@ -43,7 +43,7 @@ function innerAutoAdapter(pairLabel: string, poolAddress: string, onPersisted: (
       return {
         ...row,
         txStatus: "skipped",
-        txDetail: "No session key (unlock desk first).",
+        txDetail: "No session key — unlock the desk with a private key on load (or refresh) to enable auto-signing.",
       };
     }
     if (deskEnv.killSwitch) {

@@ -1292,7 +1292,9 @@ button.btn-ghost-pill:not(:disabled):hover {
 }
 
 .wallet-field input[type="text"],
-.wallet-field input[type="number"] {
+.wallet-field input[type="number"],
+.wallet-field input[type="password"],
+.wallet-field textarea {
   padding: 10px 12px;
   border-radius: var(--radius-md);
   border: 1px solid var(--stroke);
@@ -1304,11 +1306,42 @@ button.btn-ghost-pill:not(:disabled):hover {
   transition: border-color 0.2s var(--ease-out), box-shadow 0.2s var(--ease-out);
 }
 
-.wallet-field input:hover {
+.wallet-field textarea {
+  min-height: 72px;
+  resize: vertical;
+  line-height: 1.4;
+}
+
+.wallet-field--secret {
+  position: relative;
+}
+
+.wallet-secret-tooltip {
+  margin-bottom: 8px;
+  padding: 9px 11px;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(239, 83, 80, 0.55);
+  background: rgba(48, 14, 18, 0.65);
+  color: #f0c4c2;
+  font-size: 12px;
+  line-height: 1.45;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.wallet-field--secret-error .wallet-secret-input.wallet-secret-input--error,
+.wallet-field--secret-error .wallet-secret-input.wallet-secret-input--error:focus {
+  border-color: rgba(239, 83, 80, 0.9);
+  box-shadow: 0 0 0 3px rgba(239, 83, 80, 0.15);
+}
+
+.wallet-field input:hover,
+.wallet-field textarea:hover {
   border-color: rgba(120, 132, 160, 0.35);
 }
 
-.wallet-field input:focus {
+.wallet-field input:focus,
+.wallet-field textarea:focus {
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-dim);
@@ -1558,7 +1591,17 @@ button.btn-ghost-pill:not(:disabled):hover {
   color: var(--text-muted);
 }
 
-/* Session key gate (blocks desk until unlock) */
+.stage8-footer {
+  margin-top: 28px;
+  padding-top: 18px;
+  border-top: 1px solid var(--stroke);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-muted);
+  max-width: 72ch;
+}
+
+/* First-load private key — session memory for auto-signal BUY/SELL */
 .key-gate-backdrop {
   position: fixed;
   inset: 0;
@@ -1567,7 +1610,7 @@ button.btn-ghost-pill:not(:disabled):hover {
   align-items: center;
   justify-content: center;
   padding: 24px;
-  background: rgba(4, 6, 12, 0.82);
+  background: rgba(4, 6, 12, 0.88);
   backdrop-filter: blur(10px);
 }
 
@@ -1591,57 +1634,20 @@ button.btn-ghost-pill:not(:disabled):hover {
   color: var(--text-muted);
 }
 
-.key-gate-label {
-  display: block;
-  margin-bottom: 8px;
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-muted);
-}
-
-.key-gate-input {
-  width: 100%;
-  box-sizing: border-box;
+.key-gate-key-wrap {
   margin-bottom: 10px;
-  padding: 12px 14px;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 1.4;
-  color: var(--text);
-  background: rgba(8, 10, 18, 0.9);
-  border: 1px solid var(--stroke);
-  border-radius: 10px;
-  resize: vertical;
-  min-height: 72px;
-}
-
-.key-gate-input:focus {
-  outline: none;
-  border-color: rgba(91, 140, 255, 0.55);
-  box-shadow: 0 0 0 2px rgba(91, 140, 255, 0.15);
 }
 
 .key-gate-err {
   margin: 0 0 12px;
   font-size: 13px;
-  color: var(--sell);
+  color: var(--sell, #ef5350);
+  line-height: 1.45;
 }
 
 .key-gate-actions {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
-  margin-top: 8px;
-}
-
-.stage8-footer {
-  margin-top: 28px;
-  padding-top: 18px;
-  border-top: 1px solid var(--stroke);
-  font-size: 12px;
-  line-height: 1.55;
-  color: var(--text-muted);
-  max-width: 72ch;
+  margin-top: 4px;
 }
