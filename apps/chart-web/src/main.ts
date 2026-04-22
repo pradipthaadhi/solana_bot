@@ -427,6 +427,9 @@ async function mount(): Promise<void> {
 
   let busy = false;
 
+  /** 5 dp on the main price scale (e.g. 0.04430) so VWAP / VWMA last-value labels stay distinct. */
+  const deskPriceFormat5 = { type: "price" as const, precision: 5, minMove: 0.000_01 };
+
   const chart: IChartApi = createChart(chartEl, {
     width: chartEl.clientWidth,
     height: 520,
@@ -457,6 +460,7 @@ async function mount(): Promise<void> {
     borderDownColor: "#ef5350",
     wickUpColor: "#26a69a",
     wickDownColor: "#ef5350",
+    priceFormat: deskPriceFormat5,
   });
 
   const vol = chart.addHistogramSeries({
@@ -466,10 +470,10 @@ async function mount(): Promise<void> {
   });
   vol.priceScale().applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
 
-  const vwap = chart.addLineSeries({ color: "#e7e9ee", lineWidth: 2, title: "VWAP" });
-  const w3 = chart.addLineSeries({ color: "#2962ff", lineWidth: 1, title: "VWMA 3" });
-  const w9 = chart.addLineSeries({ color: "#9945ff", lineWidth: 1, title: "VWMA 9" });
-  const w18 = chart.addLineSeries({ color: "#14f195", lineWidth: 1, title: "VWMA 18" });
+  const vwap = chart.addLineSeries({ color: "#e7e9ee", lineWidth: 2, title: "VWAP", priceFormat: deskPriceFormat5 });
+  const w3 = chart.addLineSeries({ color: "#2962ff", lineWidth: 1, title: "VWMA 3", priceFormat: deskPriceFormat5 });
+  const w9 = chart.addLineSeries({ color: "#9945ff", lineWidth: 1, title: "VWMA 9", priceFormat: deskPriceFormat5 });
+  const w18 = chart.addLineSeries({ color: "#14f195", lineWidth: 1, title: "VWMA 18", priceFormat: deskPriceFormat5 });
 
   const updateMetrics = (barIdx: number, indicators: readonly MetricsRow[]) => {
     const row = indicators[barIdx];

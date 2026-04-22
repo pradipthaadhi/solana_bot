@@ -260,10 +260,18 @@ function chartWebAllowedHosts(fileEnv: Record<string, string>): true | string[] 
 /**
  * When the app is served at a public URL (e.g. `https://dexfilter.xyz` via Caddy), set
  * `CHART_WEB_PUBLIC_ORIGIN` so HMR uses `wss` on port 443 instead of trying to reach :5713 from the browser.
+ *
+ * If you develop at `http://localhost:...` but keep `CHART_WEB_PUBLIC_ORIGIN` in `.env` (for copy-paste
+ * to a VPS), set `CHART_WEB_USE_LOCAL_HMR=1` so the client does not try `wss` to the public host.
  */
 function chartWebHmrConfig(
   fileEnv: Record<string, string>,
 ): { protocol: "ws" | "wss"; host: string; clientPort: number } | undefined {
+  const useLocalHmr =
+    (fileEnv.CHART_WEB_USE_LOCAL_HMR ?? process.env.CHART_WEB_USE_LOCAL_HMR ?? "").trim() === "1";
+  if (useLocalHmr) {
+    return undefined;
+  }
   const raw = (fileEnv.CHART_WEB_PUBLIC_ORIGIN ?? process.env.CHART_WEB_PUBLIC_ORIGIN ?? "").trim();
   if (raw === "") {
     return undefined;
