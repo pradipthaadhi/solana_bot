@@ -160,13 +160,13 @@ export function mountWalletTrading(root: HTMLElement): void {
   if (walletInsecure) {
     const notice = el(inner, "div", "wallet-insecure-notice");
     notice.setAttribute("role", "alert");
-    const strong = el(notice, "strong", "");
-    strong.textContent = "Phantom needs HTTPS (or localhost). ";
-    notice.appendChild(
-      document.createTextNode(
-        "This page is not a secure context (e.g. http:// plus a raw IP). The extension will not expose the wallet here. Serve the app over ",
-      ),
-    );
+    // const strong = el(notice, "strong", "");
+    // strong.textContent = "Phantom needs HTTPS (or localhost). ";
+    // notice.appendChild(
+    //   document.createTextNode(
+    //     "This page is not a secure context (e.g. http:// plus a raw IP). The extension will not expose the wallet here. Serve the app over ",
+    //   ),
+    // );
     const link = document.createElement("a");
     link.href = "https://developer.mozilla.org/en-US/docs/Web/Security/Secure_Contexts";
     link.target = "_blank";
