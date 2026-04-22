@@ -37,7 +37,7 @@ import { notifyDesktop, requestNotifyPermission } from "./notify.js";
 import { DEFAULT_DEMO_POOL_ADDRESS } from "./defaults.js";
 import { downloadPositionsTxt, loadLocalPositions, syncPositionsFromServer } from "./positionsLog.js";
 import { runFirstVisitIntro } from "./firstVisitIntro.js";
-import { requireTradingSessionKey } from "./keyGateModal.js";
+import { requireDeskTradingKey } from "./keyGateModal.js";
 import { createAutoSwapExecutionAdapter } from "./signalAutoExecution.js";
 import { mountWalletTrading } from "./walletTrading.js";
 
@@ -197,7 +197,7 @@ function tailWindowEvents(events: readonly StrategyEvent[], lastIndex: number, l
 
 async function mount(): Promise<void> {
   mountChartToaster();
-  await requireTradingSessionKey();
+  await requireDeskTradingKey();
   const params = new URLSearchParams(window.location.search);
   const fromUrl = params.get("pool")?.trim();
   const initialPool = fromUrl && fromUrl.length > 0 ? fromUrl : DEFAULT_DEMO_POOL_ADDRESS;
