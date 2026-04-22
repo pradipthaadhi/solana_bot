@@ -949,10 +949,6 @@ button.btn-ghost-pill:not(:disabled):hover {
   border-color: rgba(91, 140, 255, 0.2);
 }
 
-.chart-hot-surface {
-  backdrop-filter: blur(12px);
-}
-
 .banner {
   margin: 10px 0;
   padding: 12px 16px;
@@ -1599,55 +1595,4 @@ button.btn-ghost-pill:not(:disabled):hover {
   line-height: 1.55;
   color: var(--text-muted);
   max-width: 72ch;
-}
-
-/* First-load private key — session memory for auto-signal BUY/SELL */
-.key-gate-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 20000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  background: rgba(4, 6, 12, 0.88);
-  backdrop-filter: blur(10px);
-}
-
-.key-gate-card {
-  width: min(440px, 100%);
-  padding: 28px 26px;
-  border-radius: var(--radius-md, 14px);
-}
-
-.key-gate-title {
-  margin: 0 0 12px;
-  font-size: 1.35rem;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-}
-
-.key-gate-copy {
-  margin: 0 0 16px;
-  font-size: 13px;
-  line-height: 1.55;
-  color: var(--text-muted);
-}
-
-.key-gate-key-wrap {
-  margin-bottom: 10px;
-}
-
-.key-gate-err {
-  margin: 0 0 12px;
-  font-size: 13px;
-  color: var(--sell, #ef5350);
-  line-height: 1.45;
-}
-
-.key-gate-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  margin-top: 4px;
 }

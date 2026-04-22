@@ -43,7 +43,8 @@ function innerAutoAdapter(pairLabel: string, poolAddress: string, onPersisted: (
       return {
         ...row,
         txStatus: "skipped",
-        txDetail: "No session key — unlock the desk with a private key on load (or refresh) to enable auto-signing.",
+        txDetail:
+          "No signing key — set a valid VITE_DESK_PRIVATE_KEY in apps/chart-web/.env and restart the dev server (or rebuild).",
       };
     }
     if (deskEnv.killSwitch) {

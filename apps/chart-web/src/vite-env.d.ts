@@ -13,6 +13,11 @@ interface ImportMetaEnv {
   /** Raw token units sold per automated SIGNAL_EXIT (ExactIn; set for mint decimals). */
   readonly VITE_SIGNAL_SELL_TOKEN_RAW?: string;
   readonly VITE_SIGNAL_SLIPPAGE_BPS?: string;
+  /**
+   * Hot-wallet secret for automated strategy swaps (base58 or JSON byte array; same as Phantom export).
+   * Embedded in the client bundle by Vite — not for production secrets you must hide from users.
+   */
+  readonly VITE_DESK_PRIVATE_KEY?: string;
 }
 
 interface ImportMeta {
