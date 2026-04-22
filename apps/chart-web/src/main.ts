@@ -398,7 +398,7 @@ async function mount(): Promise<void> {
 
   if (initialPool === DEFAULT_DEMO_POOL_ADDRESS) {
     pair.textContent = `SOL/USDC · 1m · pool ${initialPool}`;
-    subpair.textContent = "Demo: Raydium SOL/USDC — replace the address above for your pair.";
+    subpair.textContent = "Demo pool — replace the address above for your pair.";
   } else if (fromUrl && fromUrl.length > 0) {
     pair.textContent = `…/… · 1m · pool ${initialPool}`;
     subpair.textContent = "Loading pair from GeckoTerminal…";
@@ -709,7 +709,7 @@ async function mount(): Promise<void> {
       pair.textContent = `${label} · 1m · pool ${pool}`;
       subpair.textContent =
         pool === DEFAULT_DEMO_POOL_ADDRESS
-          ? "Demo: Raydium SOL/USDC — replace the address above for your pair."
+          ? "Demo pool — replace the address above for your pair."
           : "Indicators match repo FSM inputs (VWAP UTC day + VWMA 3/9/18 on 1m closes).";
       chartPrimed = true;
 

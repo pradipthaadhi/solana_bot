@@ -22,6 +22,14 @@ describe("describeGeckoTerminalFetchError", () => {
   it("maps generic fetch failures to network guidance", () => {
     expect(describeGeckoTerminalFetchError(new TypeError("Failed to fetch"))).toMatch(/VPN|network dropped/i);
   });
+
+  it("maps GeckoTerminal 404 pool-missing to user guidance", () => {
+    expect(
+      describeGeckoTerminalFetchError(
+        new Error("GeckoTerminal: no OHLCV for this pool (HTTP 404)."),
+      ),
+    ).toMatch(/GeckoTerminal|demo/i);
+  });
 });
 
 describe("geckoTerminalOhlcv", () => {
@@ -173,5 +181,24 @@ describe("fetchSolanaPoolOhlcv1m", () => {
       fetchTimeoutMs: 2000,
     });
     expect(n).toBe(3);
+  });
+
+  it("does not retry on HTTP 404 and throws a clear pool-missing error", async () => {
+    let n = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        n += 1;
+        return new Response(JSON.stringify({ errors: [{ status: "404", title: "Not Found" }] }), { status: 404 });
+      }),
+    );
+    await expect(
+      fetchSolanaPoolOhlcv1m({
+        poolAddress: "UnknownPool",
+        maxAttempts: 5,
+        fetchTimeoutMs: 2000,
+      }),
+    ).rejects.toThrow(/GeckoTerminal: no OHLCV|HTTP 404/);
+    expect(n).toBe(1);
   });
 });

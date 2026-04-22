@@ -226,6 +226,9 @@ function isRetriableNetworkError(e: unknown): boolean {
 export function describeGeckoTerminalFetchError(e: unknown): string {
   const raw = errorMessageOf(e);
   const low = raw.toLowerCase();
+  if (low.includes("geckoterminal: no ohlcv") || low.includes("not in geckoterminal") || (low.includes("404") && low.includes("gecko"))) {
+    return "That pool has no 1m OHLCV in GeckoTerminal (HTTP 404). Use the full pool id from the pool’s page on geckoterminal.com, or the app default: Q2sPHPdUWFMg7M7wwrQKLrn619cAucfRsmhVJffodSp.";
+  }
   if (low.includes("proxy") || low.includes("err_proxy")) {
     return "Could not reach GeckoTerminal (browser proxy error). Try disabling VPN/system proxy for this tab, or allow HTTPS to api.geckoterminal.com.";
   }
@@ -297,6 +300,11 @@ export async function fetchSolanaPoolOhlcv1m(params: FetchSolanaPoolOhlcv1mParam
         if (isRetriableHttpStatus(res.status) && attempt < maxAttempts - 1) {
           await backoffAfterAttempt(attempt);
           continue;
+        }
+        if (res.status === 404) {
+          throw new Error(
+            "GeckoTerminal: no OHLCV for this pool (HTTP 404). This pool is not in GeckoTerminal’s index — use the full pool id from the pool page on https://www.geckoterminal.com (or DexScreener “same pool on GeckoTerminal”). App default: Q2sPHPdUWFMg7M7wwrQKLrn619cAucfRsmhVJffodSp",
+          );
         }
         throw new Error(`GeckoTerminal OHLCV failed: HTTP ${res.status} ${res.statusText} ${text.slice(0, 500)}`);
       }
