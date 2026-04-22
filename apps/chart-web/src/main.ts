@@ -119,12 +119,20 @@ function toVolume(bars: readonly Ohlcv[]): HistogramData[] {
   }));
 }
 
-/** Keeps pan/zoom inside valid bar indices after `setData` changes length. */
-function clampLogicalRangeToBarCount(range: LogicalRange, barCount: number): LogicalRange {
+/**
+ * Keeps pan/zoom inside valid bar indices after `setData` changes length.
+ * `rightPadBars` extends the max logical index past the last data bar (whitespace) to match
+ * {@link CHART_TIME_SCALE_RIGHT_OFFSET_BARS} so padding is not stripped on refresh.
+ */
+function clampLogicalRangeToBarCount(
+  range: LogicalRange,
+  barCount: number,
+  rightPadBars = 0,
+): LogicalRange {
   if (barCount < 1) {
     return { from: 0 as Logical, to: 0 as Logical };
   }
-  const max = barCount - 1;
+  const max = barCount - 1 + rightPadBars;
   let from = range.from as number;
   let to = range.to as number;
   if (from > to) {
@@ -143,10 +151,44 @@ function clampLogicalRangeToBarCount(range: LogicalRange, barCount: number): Log
 
 /** Default 1m window width on first load / explicit reload (~2h). */
 const DEFAULT_VISIBLE_1M_BARS = 120;
+/**
+ * Whitespace to the right of the last bar so price-scale last-value labels (~5dp wide) do not cover the latest
+ * candle, including on narrow viewports.
+ */
+/** Wider strip = last candles sit clearly left of VWAP/VWMA tags (like a vertical “margin” before the scale). */
+const CHART_TIME_SCALE_RIGHT_OFFSET_BARS = 36;
 /** When the left edge of the visible logical range is within this many bars of index 0, fetch older OHLCV. */
 const HISTORY_PREFETCH_FROM_EDGE = 28;
 /** Page size for `before_timestamp` requests (GeckoTerminal public rate limit: stay conservative). */
 const HISTORY_PAGE_LIMIT = 500;
+
+/**
+ * Candles and volume only exist on bar indices 0..lastIdx; the time scale can extend
+ * `to` past the last index so the plot has empty "bars" to the right — that zone does not
+ * draw candles, only the grid and the price scale (VWAP / VWMA last-value tags).
+ * `setVisibleRange` on silent refresh can remove that space; re-assert logical padding.
+ */
+function ensureTimeScaleRightWhitespacePad(chart: IChartApi, barCount: number): void {
+  if (barCount < 1) {
+    return;
+  }
+  const pad = CHART_TIME_SCALE_RIGHT_OFFSET_BARS;
+  const lastIdx = barCount - 1;
+  const needTo = lastIdx + pad;
+  const lr = chart.timeScale().getVisibleLogicalRange();
+  if (lr === null) {
+    return;
+  }
+  const from = lr.from as number;
+  const to = lr.to as number;
+  if (to < lastIdx - 0.5) {
+    return;
+  }
+  if (to >= needTo - 0.01) {
+    return;
+  }
+  chart.timeScale().setVisibleLogicalRange({ from: from as Logical, to: needTo as Logical });
+}
 
 /** After OHLCV refresh: first paint shows the latest ~2h of 1m bars; silent poll restores prior time/price window. */
 function applyTimeScaleAfterData(
@@ -161,15 +203,18 @@ function applyTimeScaleAfterData(
       return;
     }
     const vis = Math.min(DEFAULT_VISIBLE_1M_BARS, barCount);
+    const pad = CHART_TIME_SCALE_RIGHT_OFFSET_BARS;
     chart.timeScale().setVisibleLogicalRange({
       from: (barCount - vis) as Logical,
-      to: (barCount - 1) as Logical,
+      to: (barCount - 1 + pad) as Logical,
     });
+    ensureTimeScaleRightWhitespacePad(chart, barCount);
     return;
   }
   if (prevTime !== null) {
     try {
       chart.timeScale().setVisibleRange(prevTime);
+      ensureTimeScaleRightWhitespacePad(chart, barCount);
       return;
     } catch {
       // fall through — e.g. range no longer overlaps new series
@@ -177,13 +222,21 @@ function applyTimeScaleAfterData(
   }
   if (prevLogical !== null && barCount > 0) {
     try {
-      chart.timeScale().setVisibleLogicalRange(clampLogicalRangeToBarCount(prevLogical, barCount));
+      chart.timeScale().setVisibleLogicalRange(
+        clampLogicalRangeToBarCount(prevLogical, barCount, CHART_TIME_SCALE_RIGHT_OFFSET_BARS),
+      );
+      ensureTimeScaleRightWhitespacePad(chart, barCount);
       return;
     } catch {
       // fall through
     }
   }
-  chart.timeScale().fitContent();
+  if (barCount > 0) {
+    chart.timeScale().fitContent();
+    ensureTimeScaleRightWhitespacePad(chart, barCount);
+  } else {
+    chart.timeScale().fitContent();
+  }
 }
 
 function rememberSignalKey(delivered: Set<string>, key: string): boolean {
@@ -459,7 +512,7 @@ async function mount(): Promise<void> {
       borderColor: "rgba(120,132,160,0.2)",
       timeVisible: true,
       secondsVisible: false,
-      rightOffset: 0,
+      rightOffset: CHART_TIME_SCALE_RIGHT_OFFSET_BARS,
       fixLeftEdge: false,
       fixRightEdge: true,
     },
@@ -650,10 +703,17 @@ async function mount(): Promise<void> {
       if (prevLogical !== null && added > 0) {
         const from = (prevLogical.from as number) + added;
         const to = (prevLogical.to as number) + added;
-        chart.timeScale().setVisibleLogicalRange(clampLogicalRangeToBarCount({ from: from as Logical, to: to as Logical }, res.bars.length));
+        chart.timeScale().setVisibleLogicalRange(
+          clampLogicalRangeToBarCount(
+            { from: from as Logical, to: to as Logical },
+            res.bars.length,
+            CHART_TIME_SCALE_RIGHT_OFFSET_BARS,
+          ),
+        );
       } else {
         chart.timeScale().fitContent();
       }
+      ensureTimeScaleRightWhitespacePad(chart, res.bars.length);
       const viewLastIdx = res.bars.length - 1;
       if (viewLastIdx >= 0) {
         setHudToBarIndex(viewLastIdx);
