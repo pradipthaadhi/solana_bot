@@ -1,5 +1,5 @@
 /**
- * Single {@link Toaster} mount for the vanilla chart app + imperative helpers (strategy signals, wallet).
+ * Single {@link Toaster} mount for the vanilla chart app + imperative helpers (strategy signals).
  */
 
 import { createRoot } from "react-dom/client";
@@ -68,20 +68,19 @@ export function mountChartToaster(): void {
   document.body.appendChild(host);
   createRoot(host).render(
     <Toaster
-      position="bottom-right"
+      position="top-right"
       gutter={10}
       reverseOrder={false}
-      containerStyle={{ bottom: 20, right: 20 }}
+      containerStyle={{ top: 20, right: 20 }}
       toastOptions={{
         duration: 12_000,
-        className: "chart-hot-surface",
         style: {
-          background: "linear-gradient(155deg, #171c24 0%, #12161c 100%)",
+          background: "#171c24",
           color: "#e8eaed",
           border: "1px solid #2b3139",
           borderRadius: 14,
           padding: "2px 4px",
-          boxShadow: "0 14px 44px rgba(0,0,0,0.55)",
+          boxShadow: "0 10px 28px rgba(0,0,0,0.45)",
           maxWidth: "min(420px, calc(100vw - 32px))",
         },
       }}
