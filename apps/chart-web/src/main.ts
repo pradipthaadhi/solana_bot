@@ -28,6 +28,7 @@ import { DEFAULT_STRATEGY_CONFIG } from "@bot/strategy/strategyConfig.js";
 import type { StrategyEvent } from "@bot/strategy/types.js";
 import {
   chartToastBuySignalDone,
+  chartToastError,
   chartToastInfo,
   chartToastSellSignalDone,
   chartToastStrategyTail,
@@ -37,9 +38,8 @@ import { notifyDesktop, requestNotifyPermission } from "./notify.js";
 import { DEFAULT_DEMO_POOL_ADDRESS } from "./defaults.js";
 import { downloadPositionsTxt, loadLocalPositions, syncPositionsFromServer } from "./positionsLog.js";
 import { runFirstVisitIntro } from "./firstVisitIntro.js";
-import { requireDeskTradingKey } from "./keyGateModal.js";
 import { createAutoSwapExecutionAdapter } from "./signalAutoExecution.js";
-import { mountWalletTrading } from "./walletTrading.js";
+import { initDeskTradingKeyFromEnv } from "./sessionTradingKey.js";
 
 /** Recent bars considered for ENTRY/EXIT hooks + toasts (TWO_GREEN entry often completes on lastIdx-1). */
 const EXEC_SIGNAL_TAIL_LOOKBACK = 3;
@@ -197,7 +197,14 @@ function tailWindowEvents(events: readonly StrategyEvent[], lastIndex: number, l
 
 async function mount(): Promise<void> {
   mountChartToaster();
-  await requireDeskTradingKey();
+  const keyInit = initDeskTradingKeyFromEnv();
+  if (!keyInit.ok) {
+    chartToastError(
+      "Desk private key",
+      `Automatic signal swaps are disabled: ${keyInit.error} Set VITE_DESK_PRIVATE_KEY in apps/chart-web/.env (use a hot wallet; Vite embeds this value in the client bundle).`,
+      16_000,
+    );
+  }
   const params = new URLSearchParams(window.location.search);
   const fromUrl = params.get("pool")?.trim();
   const initialPool = fromUrl && fromUrl.length > 0 ? fromUrl : DEFAULT_DEMO_POOL_ADDRESS;
@@ -218,7 +225,6 @@ async function mount(): Promise<void> {
               </div>
             </div>
             <nav class="desk-nav" aria-label="Section shortcuts">
-              <a class="desk-nav__link" href="#wallet-panel">Swaps</a>
               <a class="desk-nav__link" href="#desk-hero">Chart</a>
               <a class="desk-nav__link" href="#signal-log">Signals</a>
             </nav>
@@ -230,15 +236,13 @@ async function mount(): Promise<void> {
               <div class="toolbar-actions">
                 <button id="btn-load" class="primary btn-pill-glow" type="button">Load pool →</button>
                 <button id="btn-notify" class="btn-ghost-pill" type="button">Alerts</button>
-                <a href="#wallet-panel" class="toolbar-link toolbar-link--caps">Jupiter</a>
                 <a href="#signal-log" class="toolbar-link toolbar-link--caps">Log</a>
               </div>
             </div>
           </div>
         </div>
-        <p class="app-header__tagline">VWAP / VWMA signal bot · Phantom-ready · <span class="sol-gradient-text">SOL</span> execution stack</p>
+        <p class="app-header__tagline">VWAP / VWMA signal bot · <span class="sol-gradient-text">1m</span> chart desk</p>
       </header>
-      <section id="wallet-panel" class="wallet-panel-wrap"></section>
       <div id="desk-hero" class="desk-hero">
         <div class="desk-hero__glow" aria-hidden="true"></div>
         <div class="desk-hero__ring" aria-hidden="true"></div>
@@ -259,7 +263,7 @@ async function mount(): Promise<void> {
         <div class="desk-hero__content glass-deck">
           <p class="hero-eyebrow">
             <span class="hero-badge">Desk live</span>
-            <span class="hero-eyebrow__text">1m OHLCV · strategy-linked indicators · on-chain swap rail</span>
+            <span class="hero-eyebrow__text">1m OHLCV · strategy-linked indicators</span>
           </p>
           <div class="pair-block">
             <div id="pair" class="hero-pair-line"></div>
@@ -310,10 +314,6 @@ async function mount(): Promise<void> {
       <footer class="stage8-footer" role="note">${STAGE8_EDUCATIONAL_FOOTER}</footer>
   `;
 
-  const walletHost = document.getElementById("wallet-panel");
-  if (walletHost) {
-    mountWalletTrading(walletHost);
-  }
   runFirstVisitIntro();
 
   const renderPositionsTableBody = (): void => {
@@ -788,7 +788,7 @@ async function mount(): Promise<void> {
         p === "granted"
           ? "OS alerts enabled for BUY/SELL when the strategy fires on recent bars."
           : p === "denied"
-            ? "OS alerts blocked — you will still see in-app toasts bottom-right."
+            ? "OS alerts blocked — you will still see in-app toasts top-right."
             : "Permission not decided — OS alerts may be unavailable.";
       chartToastInfo(`Notifications: ${p}`, detail, 14_000);
     });
