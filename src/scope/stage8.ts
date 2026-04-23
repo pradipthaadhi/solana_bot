@@ -5,9 +5,7 @@
  */
 
 /** Short copy for chart-web footers (plain text; keep in sync with user-visible disclaimers). */
-export const STAGE8_EDUCATIONAL_FOOTER =
-  "Educational proof-of-concept only — not investment, legal, or tax advice. Past or simulated signals do not predict future results. You can lose all capital used in experiments.";
-
+export const STAGE8_EDUCATIONAL_FOOTER = ''
 /**
  * Market and model risk themes (§8.1). Each item is an operator-facing reminder, not a forecast.
  */

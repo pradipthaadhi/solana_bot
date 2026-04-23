@@ -154,6 +154,14 @@ body::after {
   max-width: 1240px;
   margin: 0 auto;
   padding: 20px 20px 40px;
+  box-sizing: border-box;
+  width: 100%;
+}
+
+@media (max-width: 640px) {
+  #app {
+    padding: 16px 12px 32px;
+  }
 }
 
 /* Staggered entrance — every load (honors reduced-motion via global media rules) */
@@ -1531,11 +1539,18 @@ button.btn-ghost-pill:not(:disabled):hover {
 }
 
 .table-scroll {
-  overflow-x: auto;
+  width: 100%;
+  min-width: 0;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  max-height: min(70vh, 640px);
   border: 1px solid var(--stroke);
   border-radius: var(--radius-md);
   background: rgba(12, 14, 22, 0.85);
   box-shadow: var(--shadow-sm);
+  /* Hint that the table can scroll on narrow viewports */
+  scrollbar-gutter: stable;
 }
 
 .positions-pagination {
@@ -1584,16 +1599,27 @@ button.btn-ghost-pill:not(:disabled):hover {
 
 .positions-table {
   width: 100%;
-  border-collapse: collapse;
+  min-width: 56rem;
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: 13px;
+  table-layout: auto;
 }
 
 .positions-table th,
 .positions-table td {
-  padding: 11px 14px;
+  padding: 11px 12px;
   text-align: left;
   border-bottom: 1px solid var(--stroke);
   vertical-align: top;
+}
+
+/* Sticky header while scrolling the table area vertically */
+.positions-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  box-shadow: 0 1px 0 0 var(--stroke);
 }
 
 /* Beats `.positions-table th, td { text-align: left; vertical-align: top }` so both header + row controls align. */
@@ -1604,6 +1630,46 @@ button.btn-ghost-pill:not(:disabled):hover {
   min-width: 3.25rem;
   padding: 11px 10px;
   box-sizing: border-box;
+}
+
+.positions-table thead th:first-child {
+  left: 0;
+  z-index: 5;
+  box-shadow:
+    4px 0 12px -2px rgba(0, 0, 0, 0.35),
+    0 1px 0 0 var(--stroke);
+}
+
+.positions-table thead th.positions-table__th-actions {
+  right: 0;
+  z-index: 5;
+  box-shadow:
+    -4px 0 12px -2px rgba(0, 0, 0, 0.35),
+    0 1px 0 0 var(--stroke);
+}
+
+.positions-table tbody td.trade-id-cell {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: rgba(14, 16, 24, 0.98);
+  box-shadow: 4px 0 10px -4px rgba(0, 0, 0, 0.4);
+}
+
+.positions-table tbody tr:hover td.trade-id-cell {
+  background: rgba(22, 28, 42, 0.99);
+}
+
+.positions-table tbody td.positions-table__cell-actions {
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  background: rgba(14, 16, 24, 0.98);
+  box-shadow: -4px 0 10px -4px rgba(0, 0, 0, 0.4);
+}
+
+.positions-table tbody tr:hover td.positions-table__cell-actions {
+  background: rgba(22, 28, 42, 0.99);
 }
 
 .positions-actions-head {
@@ -1649,21 +1715,54 @@ button.btn-ghost-pill:not(:disabled):hover {
 .positions-table .trade-id-cell {
   font-family: var(--font-mono);
   font-size: 11px;
-  max-width: 120px;
+  max-width: 6.5rem;
+  min-width: 4.5rem;
   word-break: break-all;
   vertical-align: middle;
   color: var(--text-muted);
 }
 
+.positions-table .time-cell {
+  white-space: nowrap;
+  font-size: 11px;
+  max-width: 11.5rem;
+}
+
+.positions-table .pair-cell {
+  white-space: nowrap;
+  max-width: 9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .positions-table .mono {
   font-family: var(--font-mono);
   font-size: 11px;
-  word-break: break-all;
-  max-width: 220px;
+  max-width: 12rem;
+}
+
+.positions-table .pool-cell {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 10rem;
 }
 
 .positions-table .reason-cell {
-  max-width: 420px;
+  max-width: min(28rem, 45vw);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  overflow: hidden;
+}
+
+@supports not (-webkit-line-clamp: 4) {
+  .positions-table .reason-cell {
+    display: block;
+    max-height: 6em;
+    overflow: hidden;
+  }
 }
 
 .side-buy {
@@ -1699,7 +1798,7 @@ button.btn-ghost-pill:not(:disabled):hover {
 }
 
 .positions-table .tx-detail-cell {
-  max-width: 360px;
+  max-width: min(22rem, 42vw);
   font-size: 12px;
 }
 
@@ -1711,6 +1810,10 @@ button.btn-ghost-pill:not(:disabled):hover {
 }
 
 .positions-table .tx-detail-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
   word-break: break-word;
   line-height: 1.45;
   color: var(--text-muted);
@@ -1768,6 +1871,40 @@ button.btn-ghost-pill:not(:disabled):hover {
 .position-clear-all:disabled {
   opacity: 0.35;
   cursor: not-allowed;
+}
+
+@media (max-width: 720px) {
+  .positions-table {
+    min-width: 50rem;
+    font-size: 12px;
+  }
+
+  .positions-table th,
+  .positions-table td {
+    padding: 8px 8px;
+  }
+
+  .positions-table th.positions-table__th-actions,
+  .positions-table td.positions-table__cell-actions {
+    padding: 8px 6px;
+  }
+
+  .positions-table .reason-cell {
+    -webkit-line-clamp: 3;
+    max-width: min(20rem, 60vw);
+  }
+}
+
+/* Hide “Bar#” on very narrow viewports; index still in exports / JSONL. */
+@media (max-width: 480px) {
+  .positions-table thead th:nth-child(6),
+  .positions-table tbody td.bar-cell {
+    display: none;
+  }
+
+  .table-scroll {
+    max-height: min(62vh, 480px);
+  }
 }
 
 .stage8-footer {

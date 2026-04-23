@@ -1,10 +1,11 @@
 /**
- * In-memory FIFO of open BUY trade ids per pool (key = Gecko pool address).
- * SELL rows reuse the id at the head so logs show which SELL pairs with which BUY.
- * Resets on full page reload (same as the rest of the desk session state).
+ * In-memory “one open position per pool” (key = Gecko pool address).
+ * - After a successful BUY we store that row’s trade id until a successful SELL clears it.
+ * - A second BUY for the same pool is blocked while an id is present.
+ * Resets on full page reload (same as other desk session state).
  */
 
-const fifoByPool = new Map<string, string[]>();
+const openTradeIdByPool = new Map<string, string>();
 
 export function newTradeId(): string {
   if (globalThis.crypto?.randomUUID) {
@@ -13,35 +14,39 @@ export function newTradeId(): string {
   return `tr_${Date.now()}_${Math.random().toString(36).slice(2, 14)}`;
 }
 
-/** After a successful on-chain BUY, enqueue this id so the next SELL in this pool can reference it. */
+/** True if this pool already has an open position (successful BUY not yet cleared by successful SELL). */
+export function hasOpenPositionForPool(poolAddress: string): boolean {
+  const k = poolAddress.trim();
+  if (k.length === 0) {
+    return false;
+  }
+  const id = openTradeIdByPool.get(k);
+  return typeof id === "string" && id.length > 0;
+}
+
+/** After a successful on-chain BUY, record this id until SELL. No-op if a position is already open (defensive). */
 export function onBuyFilledPool(poolAddress: string, tradeId: string): void {
   const k = poolAddress.trim();
   if (k.length === 0) {
     return;
   }
-  const q = fifoByPool.get(k) ?? [];
-  q.push(tradeId);
-  fifoByPool.set(k, q);
+  if (hasOpenPositionForPool(poolAddress)) {
+    return;
+  }
+  openTradeIdByPool.set(k, tradeId);
 }
 
-/** Id the next SELL in this pool should show (oldest unclosed BUY in FIFO), or "" if none. */
+/** Id the next SELL in this pool should show, or "" if there is no open position. */
 export function peekOpenBuyTradeIdForPool(poolAddress: string): string {
   const k = poolAddress.trim();
-  const q = fifoByPool.get(k);
-  return q && q.length > 0 ? (q[0] ?? "") : "";
+  return openTradeIdByPool.get(k) ?? "";
 }
 
-/** After a successful SELL, consume one queued BUY id. */
+/** After a successful SELL, clear the open position for this pool. */
 export function onSellFilledPool(poolAddress: string): void {
   const k = poolAddress.trim();
   if (k.length === 0) {
     return;
   }
-  const q = fifoByPool.get(k);
-  if (q && q.length > 0) {
-    q.shift();
-  }
-  if (q && q.length === 0) {
-    fifoByPool.delete(k);
-  }
+  openTradeIdByPool.delete(k);
 }

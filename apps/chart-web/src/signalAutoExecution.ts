@@ -9,12 +9,19 @@ import { readDeskEnv } from "./chartWebEnv.js";
 import { resolveJupiterApiBaseUrl } from "./jupiterApiBaseUrl.js";
 import { getSessionTradingKeypair } from "./sessionTradingKey.js";
 import { getSessionPoolSwapTokenMint } from "./sessionPoolSwapMint.js";
-import { newTradeId, onBuyFilledPool, onSellFilledPool, peekOpenBuyTradeIdForPool } from "./sessionTradePairing.js";
+import {
+  hasOpenPositionForPool,
+  newTradeId,
+  onBuyFilledPool,
+  onSellFilledPool,
+  peekOpenBuyTradeIdForPool,
+} from "./sessionTradePairing.js";
 import { getSignalAutoTradeLamports } from "./signalTradeAmount.js";
 import { readWalletSplTokenBalanceRaw } from "./splTokenBalance.js";
 import {
   chartToastBuySignalDone,
   chartToastError,
+  chartToastInfo,
   chartToastSellSignalDone,
 } from "./chartToaster.js";
 import { notifyDesktop } from "./notify.js";
@@ -106,6 +113,14 @@ function innerAutoAdapter(pairLabel: string, poolAddress: string, onPersisted: (
 
     try {
       if (side === "BUY") {
+        if (hasOpenPositionForPool(row.pool)) {
+          return {
+            ...row,
+            txStatus: "skipped",
+            txDetail:
+              "Open position already — this BUY is skipped until the position is closed (SELL) for this pool. One open position at a time.",
+          };
+        }
         const res = await executeJupiterSwap({
           connection: conn,
           userPublicKeyBase58: kp.publicKey.toBase58(),
@@ -213,8 +228,11 @@ function innerAutoAdapter(pairLabel: string, poolAddress: string, onPersisted: (
       notifyDesktop(`${pairLabel} — BUY`, msg);
       if (finalRow.txStatus === "error") {
         chartToastError("Auto BUY failed", finalRow.txDetail ?? "Unknown error");
+      } else if (finalRow.txStatus === "skipped" && (finalRow.txDetail?.includes("Open position") ?? false)) {
+        chartToastInfo("BUY skipped (one open position)", finalRow.txDetail ?? "");
+      } else {
+        chartToastBuySignalDone(pairLabel, p.reason, row.ts);
       }
-      chartToastBuySignalDone(pairLabel, p.reason, row.ts);
     },
     async onSignalExit(p: ExecutionSignalPayload) {
       const sellRef = peekOpenBuyTradeIdForPool(poolAddress);

@@ -299,7 +299,7 @@ async function mount(): Promise<void> {
                 <img src="/branding/usdc.svg" width="26" height="26" alt="" />
               </div>
               <div class="app-brand__text">
-                <span class="app-brand__name">sol_bot</span>
+                <span class="app-brand__name">Solana Trading Bot</span>
                 <span class="app-brand__tag">Solana · chart desk</span>
               </div>
             </div>
@@ -475,20 +475,25 @@ async function mount(): Promise<void> {
         tdId.classList.add("tx-missing");
       }
       const tdTs = document.createElement("td");
+      tdTs.className = "time-cell";
       tdTs.textContent = r.ts;
       const tdSide = document.createElement("td");
       tdSide.textContent = r.side;
       tdSide.className = r.side === "BUY" ? "side-buy" : "side-sell";
       const tdPair = document.createElement("td");
+      tdPair.className = "pair-cell";
       tdPair.textContent = r.pair;
       const tdPool = document.createElement("td");
       tdPool.textContent = r.pool;
-      tdPool.className = "mono";
+      tdPool.className = "mono pool-cell";
+      tdPool.title = r.pool;
       const tdBar = document.createElement("td");
+      tdBar.className = "bar-cell";
       tdBar.textContent = String(r.barIndex);
       const tdReason = document.createElement("td");
       tdReason.textContent = r.reason;
       tdReason.className = "reason-cell";
+      tdReason.title = r.reason;
       const tdTx = document.createElement("td");
       if (r.txStatus === "ok") {
         tdTx.textContent = "Success";
