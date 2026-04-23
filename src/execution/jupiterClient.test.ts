@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildJupiterQuoteUrl, fetchJupiterQuote } from "./jupiterClient.js";
-import { readQuotedInputAmount } from "./jupiterClient.js";
+import { buildJupiterQuoteUrl, fetchJupiterQuote, readMaxQuotedInputForPreflight, readQuotedInputAmount } from "./jupiterClient.js";
 
 describe("readQuotedInputAmount", () => {
   it("parses string inAmount", () => {
@@ -14,6 +13,21 @@ describe("readQuotedInputAmount", () => {
   it("rejects invalid shapes", () => {
     expect(() => readQuotedInputAmount({})).toThrow();
     expect(() => readQuotedInputAmount({ inAmount: "-1" })).toThrow();
+  });
+});
+
+describe("readMaxQuotedInputForPreflight", () => {
+  it("returns inAmount for ExactIn", () => {
+    expect(readMaxQuotedInputForPreflight({ inAmount: "100" }, "ExactIn", 100)).toBe(100n);
+  });
+
+  it("returns inAmount for ExactOut when slippage is 0", () => {
+    expect(readMaxQuotedInputForPreflight({ inAmount: "100" }, "ExactOut", 0)).toBe(100n);
+  });
+
+  it("ExactOut applies slippage ceiling to the input (Jupiter exact-out semantics)", () => {
+    // 100 * 1.005 = 100.5 -> 101
+    expect(readMaxQuotedInputForPreflight({ inAmount: "100" }, "ExactOut", 50)).toBe(101n);
   });
 });
 

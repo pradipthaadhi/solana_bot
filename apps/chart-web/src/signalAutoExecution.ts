@@ -10,12 +10,22 @@ import { resolveJupiterApiBaseUrl } from "./jupiterApiBaseUrl.js";
 import { getSessionTradingKeypair } from "./sessionTradingKey.js";
 import { getSessionPoolSwapTokenMint } from "./sessionPoolSwapMint.js";
 import { getSignalAutoTradeLamports } from "./signalTradeAmount.js";
+import { readWalletSplTokenBalanceRaw } from "./splTokenBalance.js";
 import {
   chartToastBuySignalDone,
   chartToastError,
   chartToastSellSignalDone,
 } from "./chartToaster.js";
 import { notifyDesktop } from "./notify.js";
+
+/** ExactOut (target SOL) can quote more x_token input than the wallet holds; sim then fails with SPL 0x1 "insufficient funds". */
+function isSellInsufficientError(message: string): boolean {
+  return (
+    message.includes("INSUFFICIENT_TOKEN_BALANCE") ||
+    /insufficient funds/i.test(message) ||
+    /custom program error: 0x1/i.test(message)
+  );
+}
 
 function buildRow(
   side: PositionSignalRow["side"],
@@ -112,29 +122,70 @@ function innerAutoAdapter(pairLabel: string, poolAddress: string, onPersisted: (
           txDetail: sig ? `Confirmed · ${sig.slice(0, 8)}…` : "Confirmed",
         };
       }
-      const res = await executeJupiterSwap({
+      const splBalance = await readWalletSplTokenBalanceRaw(conn, kp.publicKey, tokenMint);
+      if (splBalance === 0n) {
+        return {
+          ...row,
+          txStatus: "skipped",
+          txDetail: "No token balance to sell (desk wallet holds 0 of this mint).",
+        };
+      }
+      const maxTokenIn = splBalance < deskEnv.maxInputRaw ? splBalance : deskEnv.maxInputRaw;
+      const swapBase = {
         connection: conn,
         userPublicKeyBase58: kp.publicKey.toBase58(),
-        quoteParams: {
-          inputMint: tokenMint,
-          outputMint: NATIVE_SOL_MINT,
-          amount: sellLamports,
-          slippageBps: deskEnv.signalSlippageBps,
-          swapMode: "ExactOut",
-        },
         rails,
         signTransaction,
         simulateOnly: false,
         jupiterBaseUrl: resolveJupiterApiBaseUrl(),
         skipRpcHealthCheck: true,
-      });
-      const sig = res.signature ?? "";
-      return {
-        ...row,
-        txStatus: "ok",
-        signature: sig,
-        txDetail: sig ? `Confirmed · ${sig.slice(0, 8)}…` : "Confirmed",
+      } as const;
+
+      const okRow = (res: { signature?: string }, extraDetail = ""): PositionSignalRow => {
+        const sig = res.signature ?? "";
+        return {
+          ...row,
+          txStatus: "ok",
+          signature: sig,
+          txDetail: sig
+            ? `Confirmed · ${sig.slice(0, 8)}…${extraDetail}`
+            : `Confirmed${extraDetail}`,
+        };
       };
+
+      try {
+        return okRow(
+          await executeJupiterSwap({
+            ...swapBase,
+            quoteParams: {
+              inputMint: tokenMint,
+              outputMint: NATIVE_SOL_MINT,
+              amount: sellLamports,
+              slippageBps: deskEnv.signalSlippageBps,
+              swapMode: "ExactOut",
+            },
+            preflightSplBalanceRaw: splBalance,
+          }),
+        );
+      } catch (first) {
+        const firstMsg = first instanceof Error ? first.message : String(first);
+        if (!isSellInsufficientError(firstMsg) || maxTokenIn < 1n) {
+          return { ...row, txStatus: "error", txDetail: firstMsg };
+        }
+        const res = await executeJupiterSwap({
+          ...swapBase,
+          quoteParams: {
+            inputMint: tokenMint,
+            outputMint: NATIVE_SOL_MINT,
+            amount: maxTokenIn,
+            slippageBps: deskEnv.signalSlippageBps,
+          },
+        });
+        return okRow(
+          res,
+          " — sold spendable token balance (ExactOut target needed more x than the wallet had).",
+        );
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       return { ...row, txStatus: "error", txDetail: msg };
@@ -150,7 +201,7 @@ function innerAutoAdapter(pairLabel: string, poolAddress: string, onPersisted: (
       const msg = `${p.reason}\n${row.ts}`;
       notifyDesktop(`${pairLabel} — BUY`, msg);
       if (finalRow.txStatus === "error") {
-        chartToastError("Auto BUY failed", finalRow.txDetail ?? "Unknown error", 16_000);
+        chartToastError("Auto BUY failed", finalRow.txDetail ?? "Unknown error");
       }
       chartToastBuySignalDone(pairLabel, p.reason, row.ts);
     },
@@ -162,7 +213,7 @@ function innerAutoAdapter(pairLabel: string, poolAddress: string, onPersisted: (
       const msg = `${p.reason}\n${row.ts}`;
       notifyDesktop(`${pairLabel} — SELL`, msg);
       if (finalRow.txStatus === "error") {
-        chartToastError("Auto SELL failed", finalRow.txDetail ?? "Unknown error", 16_000);
+        chartToastError("Auto SELL failed", finalRow.txDetail ?? "Unknown error");
       }
       chartToastSellSignalDone(pairLabel, p.reason, row.ts);
     },

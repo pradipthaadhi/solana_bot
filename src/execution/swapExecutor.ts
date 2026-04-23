@@ -18,7 +18,7 @@ import {
 } from "@solana/web3.js";
 import { assertRpcHealthy } from "./rpcHealth.js";
 import { assertOnChainBroadcastAllowed, assertTradingAllowed, assertWithinMaxInput } from "./safetyRails.js";
-import { fetchJupiterQuote, fetchJupiterSwapTransaction, readQuotedInputAmount } from "./jupiterClient.js";
+import { fetchJupiterQuote, fetchJupiterSwapTransaction, readMaxQuotedInputForPreflight } from "./jupiterClient.js";
 import type { BroadcastOptions, JupiterQuoteParams, SafetyRails, SignVersionedTransaction } from "./types.js";
 
 export interface ExecuteJupiterSwapParams {
@@ -196,11 +196,11 @@ export async function executeJupiterSwap(params: ExecuteJupiterSwapParams): Prom
 
   const jupiterOpts = pickJupiterOpts(params);
   const quote = await fetchJupiterQuote(params.quoteParams, jupiterOpts);
-  const quotedIn = readQuotedInputAmount(quote);
-  assertWithinMaxInput(quotedIn, params.rails.maxInputRaw);
-  if (params.preflightSplBalanceRaw !== undefined && quotedIn > params.preflightSplBalanceRaw) {
+  const maxQuotedIn = readMaxQuotedInputForPreflight(quote, params.quoteParams.swapMode, params.quoteParams.slippageBps);
+  assertWithinMaxInput(maxQuotedIn, params.rails.maxInputRaw);
+  if (params.preflightSplBalanceRaw !== undefined && maxQuotedIn > params.preflightSplBalanceRaw) {
     throw new Error(
-      `INSUFFICIENT_TOKEN_BALANCE: need ${quotedIn.toString()} raw units of input mint, wallet has ${params.preflightSplBalanceRaw.toString()}. ` +
+      `INSUFFICIENT_TOKEN_BALANCE: need up to ${maxQuotedIn.toString()} raw units of input mint (inAmount + slippage on input for ExactOut), wallet has ${params.preflightSplBalanceRaw.toString()}. ` +
         "Add more of the sell token or lower the target SOL out (lamports).",
     );
   }

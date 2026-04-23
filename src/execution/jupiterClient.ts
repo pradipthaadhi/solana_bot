@@ -1,4 +1,4 @@
-import type { JupiterQuoteParams, JupiterSwapRequest } from "./types.js";
+import type { JupiterQuoteParams, JupiterSwapMode, JupiterSwapRequest } from "./types.js";
 import { JUPITER_V6_QUOTE_API_DEFAULT } from "./types.js";
 
 function isRecord(x: unknown): x is Record<string, unknown> {
@@ -17,6 +17,24 @@ export function readQuotedInputAmount(quote: unknown): bigint {
     return BigInt(Math.trunc(v));
   }
   throw new Error("Invalid Jupiter quote: inAmount must be a positive base-10 string or number.");
+}
+
+const SLIPPAGE_BASIS = 10_000n;
+
+/**
+ * Worst-case input the swap may require for safety checks.
+ * For `ExactIn`, slippage is on the output — `inAmount` is the spend. For `ExactOut`, slippage is on
+ * the **input**; the on-chain program may need up to `ceil(inAmount * (1 + slippageBps/10000))` raw units
+ * of `inputMint` (see Jupiter swapMode docs), which can fail simulation with SPL `0x1` if only `inAmount`
+ * fits the wallet.
+ */
+export function readMaxQuotedInputForPreflight(quote: unknown, swapMode: JupiterSwapMode | undefined, slippageBps: number): bigint {
+  const base = readQuotedInputAmount(quote);
+  if (swapMode !== "ExactOut" || slippageBps <= 0) {
+    return base;
+  }
+  const s = BigInt(Math.min(Math.max(0, slippageBps), 1_000_000));
+  return (base * (SLIPPAGE_BASIS + s) + SLIPPAGE_BASIS - 1n) / SLIPPAGE_BASIS;
 }
 
 export function buildJupiterQuoteUrl(params: JupiterQuoteParams, baseUrl = JUPITER_V6_QUOTE_API_DEFAULT): string {

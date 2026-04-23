@@ -112,6 +112,28 @@ describe("executeJupiterSwap (Stage 5.4–5.5)", () => {
     ).rejects.toThrow(/INSUFFICIENT_TOKEN_BALANCE/);
   });
 
+  it("ExactOut preflight uses input slippage ceiling (avoids inAmount OK but on-chain 0x1)", async () => {
+    vi.spyOn(jupiter, "fetchJupiterQuote").mockResolvedValue({ inAmount: "100" });
+    await expect(
+      executeJupiterSwap({
+        connection: {} as Connection,
+        userPublicKeyBase58: Keypair.generate().publicKey.toBase58(),
+        quoteParams: {
+          inputMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          outputMint: "So11111111111111111111111111111111111111112",
+          amount: 1_000_000n,
+          slippageBps: 50,
+          swapMode: "ExactOut",
+        },
+        rails: { killSwitchEngaged: false, maxInputRaw: 500n },
+        signTransaction: async (tx) => tx,
+        simulateOnly: true,
+        skipRpcHealthCheck: true,
+        preflightSplBalanceRaw: 100n,
+      }),
+    ).rejects.toThrow(/INSUFFICIENT_TOKEN_BALANCE/);
+  });
+
   it("skipRpcHealthCheck avoids getSlot when connection mock has no RPC methods", async () => {
     vi.spyOn(jupiter, "fetchJupiterQuote").mockResolvedValue({ inAmount: "100" });
     vi.spyOn(jupiter, "fetchJupiterSwapTransaction").mockResolvedValue({ swapTransaction: sampleSignedSwapTxB64() });

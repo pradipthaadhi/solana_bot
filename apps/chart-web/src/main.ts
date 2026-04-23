@@ -270,7 +270,6 @@ async function mount(): Promise<void> {
     chartToastError(
       "Desk private key",
       `Automatic signal swaps are disabled: ${keyInit.error} Set VITE_DESK_PRIVATE_KEY in apps/chart-web/.env (use a hot wallet; Vite embeds this value in the client bundle).`,
-      16_000,
     );
   }
   const params = new URLSearchParams(window.location.search);
@@ -870,7 +869,7 @@ async function mount(): Promise<void> {
           if (!rememberSignalKey(deliveredSignals, key)) {
             continue;
           }
-          chartToastStrategyTail(label, ev.kind, ev.reason, new Date(tMs).toISOString(), 8000);
+          chartToastStrategyTail(label, ev.kind, ev.reason, new Date(tMs).toISOString());
         }
       }
     } catch (e) {
@@ -903,7 +902,7 @@ async function mount(): Promise<void> {
           : p === "denied"
             ? "OS alerts blocked — you will still see in-app toasts top-right."
             : "Permission not decided — OS alerts may be unavailable.";
-      chartToastInfo(`Notifications: ${p}`, detail, 14_000);
+      chartToastInfo(`Notifications: ${p}`, detail);
     });
   });
 

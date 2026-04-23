@@ -18,6 +18,7 @@ import {
 import { readDeskEnv } from "./chartWebEnv.js";
 import { resolveJupiterApiBaseUrl } from "./jupiterApiBaseUrl.js";
 import { parseSecretKeyInput } from "./secretKeyParse.js";
+import { readWalletSplTokenBalanceRaw } from "./splTokenBalance.js";
 import { getSessionTradingKeypair, setSessionTradingKeypair } from "./sessionTradingKey.js";
 
 type PhantomLike = {
@@ -105,23 +106,6 @@ function attachPhantomAccountChanged(
   return () => {
     bridge.removeListener?.("accountChanged", handler);
   };
-}
-
-async function readWalletSplTokenBalanceRaw(connection: Connection, owner: PublicKey, mintBase58: string): Promise<bigint> {
-  const mint = new PublicKey(mintBase58);
-  const res = await connection.getParsedTokenAccountsByOwner(owner, { mint });
-  let total = 0n;
-  for (const row of res.value) {
-    const parsed = row.account.data.parsed;
-    if (parsed && typeof parsed === "object" && "info" in parsed) {
-      const info = (parsed as { info?: { tokenAmount?: { amount?: string } } }).info;
-      const amt = info?.tokenAmount?.amount;
-      if (typeof amt === "string" && /^\d+$/.test(amt)) {
-        total += BigInt(amt);
-      }
-    }
-  }
-  return total;
 }
 
 function getPhantom(): PhantomLike | null {
@@ -560,7 +544,6 @@ export function mountWalletTrading(root: HTMLElement): void {
         chartToastInfo(
           "Signing wallet",
           `Secret key address ${buyKeypair.publicKey.toBase58().slice(0, 4)}… differs from connected Phantom — BUY will use the secret key.`,
-          8000,
         );
       }
     }
