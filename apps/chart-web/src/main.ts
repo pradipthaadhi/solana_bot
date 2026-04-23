@@ -37,12 +37,24 @@ import {
 } from "./chartToaster.js";
 import { notifyDesktop, requestNotifyPermission } from "./notify.js";
 import { DEFAULT_DEMO_PAIR_LABEL, DEFAULT_DEMO_POOL_ADDRESS } from "./defaults.js";
-import { downloadPositionsTxt, loadLocalPositions, syncPositionsFromServer } from "./positionsLog.js";
+import {
+  downloadPositionsTxt,
+  clearAllPositions,
+  loadLocalPositions,
+  positionRowKey,
+  removePositionByKey,
+  syncPositionsFromServer,
+} from "./positionsLog.js";
 import { runFirstVisitIntro } from "./firstVisitIntro.js";
 import { createAutoSwapExecutionAdapter } from "./signalAutoExecution.js";
 import { initDeskTradingKeyFromEnv } from "./sessionTradingKey.js";
 import { setSignalAutoSolInputToEnvDefaults } from "./signalTradeAmount.js";
 import { setSessionPoolSwapTokenMint } from "./sessionPoolSwapMint.js";
+
+/** Icon-only control for removing a row from the signal log (label via `aria-label` on the button). */
+const TRASH_SVG = `<svg class="position-row-delete__icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>`;
+
+const POSITIONS_PAGE_SIZE = 15;
 
 /** Recent bars considered for ENTRY/EXIT hooks + toasts (TWO_GREEN entry often completes on lastIdx-1). */
 const EXEC_SIGNAL_TAIL_LOOKBACK = 3;
@@ -371,7 +383,7 @@ async function mount(): Promise<void> {
             <button id="btn-positions-export" type="button">Download positions.txt</button>
           </div>
         </div>
-        <p class="hint signal-log-hint">Newest first. <b>Tx</b> shows on-chain outcome for auto-execution (success / error / skipped). In <code>npm run chart:dev</code>, rows append to <code>apps/chart-web/positions.txt</code> via <code>POST /api/positions</code>. Production/static: localStorage only — use Download to save a file.</p>
+        <p class="hint signal-log-hint">Newest first, <b>15 rows per page</b>. <b>Tx</b> shows on-chain outcome for auto-execution (success / error / skipped). Per-row trash removes one entry; the header control deletes the full history. In <code>npm run chart:dev</code> the dev server rewrites <code>apps/chart-web/positions.txt</code> (<code>PUT /api/positions</code>); otherwise <b>Download</b> saves your local list.</p>
         <div class="table-scroll">
           <table class="positions-table" aria-label="Historical BUY and SELL signals">
             <thead>
@@ -384,10 +396,29 @@ async function mount(): Promise<void> {
                 <th>Reason</th>
                 <th>Tx</th>
                 <th>Tx detail</th>
+                <th class="positions-table__th-actions" scope="col">
+                  <div class="positions-actions-head">
+                    <span class="positions-actions-head__label">Actions</span>
+                    <button
+                      type="button"
+                      id="btn-positions-clear-all"
+                      class="position-icon-btn position-clear-all"
+                      title="Delete all rows"
+                      aria-label="Delete all signal history rows"
+                    >
+                      ${TRASH_SVG}
+                    </button>
+                  </div>
+                </th>
               </tr>
             </thead>
             <tbody id="positions-tbody"></tbody>
           </table>
+        </div>
+        <div class="positions-pagination" id="positions-pagination" role="navigation" aria-label="Signal history pages">
+          <button type="button" id="btn-positions-prev" class="positions-page-btn" title="Page with more recent signals">Previous</button>
+          <p class="positions-page-status" id="positions-page-status" aria-live="polite"></p>
+          <button type="button" id="btn-positions-next" class="positions-page-btn" title="Page with older signals">Next</button>
         </div>
       </section>
       <footer class="stage8-footer" role="note">${STAGE8_EDUCATIONAL_FOOTER}</footer>
@@ -395,14 +426,41 @@ async function mount(): Promise<void> {
 
   runFirstVisitIntro();
 
+  /** 0-based; page 0 = newest 15. Clamped in {@link renderPositionsTableBody}. */
+  let positionsPageIndex = 0;
+
   const renderPositionsTableBody = (): void => {
     const tbody = document.getElementById("positions-tbody");
     if (!tbody) {
       return;
     }
     tbody.replaceChildren();
-    const rows = loadLocalPositions().sort((a, b) => b.ts.localeCompare(a.ts));
-    for (const r of rows) {
+    const allRows = loadLocalPositions().sort((a, b) => b.ts.localeCompare(a.ts));
+    const n = allRows.length;
+    const totalPages = n === 0 ? 1 : Math.ceil(n / POSITIONS_PAGE_SIZE);
+    positionsPageIndex = Math.max(0, Math.min(positionsPageIndex, totalPages - 1));
+    const start = positionsPageIndex * POSITIONS_PAGE_SIZE;
+    const pageRows = allRows.slice(start, start + POSITIONS_PAGE_SIZE);
+
+    const pageStatus = document.getElementById("positions-page-status");
+    if (pageStatus) {
+      const from = n === 0 ? 0 : start + 1;
+      const to = n === 0 ? 0 : start + pageRows.length;
+      pageStatus.textContent =
+        n === 0
+          ? "Page 1 of 1 · 0 records"
+          : `Page ${positionsPageIndex + 1} of ${totalPages} · ${from}–${to} of ${n}`;
+    }
+    const prevBtn = document.getElementById("btn-positions-prev");
+    if (prevBtn instanceof HTMLButtonElement) {
+      prevBtn.disabled = positionsPageIndex <= 0;
+    }
+    const nextBtn = document.getElementById("btn-positions-next");
+    if (nextBtn instanceof HTMLButtonElement) {
+      nextBtn.disabled = positionsPageIndex >= totalPages - 1;
+    }
+
+    for (const r of pageRows) {
       const tr = document.createElement("tr");
       const tdTs = document.createElement("td");
       tdTs.textContent = r.ts;
@@ -453,8 +511,33 @@ async function mount(): Promise<void> {
       if (tdTxDetail.childNodes.length === 0) {
         tdTxDetail.textContent = "—";
       }
-      tr.append(tdTs, tdSide, tdPair, tdPool, tdBar, tdReason, tdTx, tdTxDetail);
+      const tdActions = document.createElement("td");
+      tdActions.className = "positions-table__cell-actions";
+      const delBtn = document.createElement("button");
+      delBtn.type = "button";
+      delBtn.className = "position-icon-btn position-row-delete";
+      delBtn.innerHTML = TRASH_SVG;
+      const rowKey = positionRowKey(r);
+      delBtn.setAttribute("data-position-key", encodeURIComponent(rowKey));
+      delBtn.setAttribute("aria-label", "Delete this signal row");
+      delBtn.title = "Delete row";
+      delBtn.addEventListener("click", () => {
+        if (!window.confirm("Delete this signal from history?")) {
+          return;
+        }
+        const key = decodeURIComponent(delBtn.getAttribute("data-position-key") ?? "");
+        if (key.length === 0) {
+          return;
+        }
+        void removePositionByKey(key).then(() => renderPositionsTableBody());
+      });
+      tdActions.appendChild(delBtn);
+      tr.append(tdTs, tdSide, tdPair, tdPool, tdBar, tdReason, tdTx, tdTxDetail, tdActions);
       tbody.appendChild(tr);
+    }
+    const clearAllBtn = document.getElementById("btn-positions-clear-all");
+    if (clearAllBtn instanceof HTMLButtonElement) {
+      clearAllBtn.disabled = n === 0;
     }
   };
 
@@ -916,6 +999,44 @@ async function mount(): Promise<void> {
   if (btnPosExport) {
     btnPosExport.addEventListener("click", () => {
       downloadPositionsTxt(loadLocalPositions());
+    });
+  }
+  const btnPosClearAll = document.getElementById("btn-positions-clear-all");
+  if (btnPosClearAll) {
+    btnPosClearAll.addEventListener("click", () => {
+      if (loadLocalPositions().length === 0) {
+        return;
+      }
+      if (!window.confirm("Delete all signal history rows? This cannot be undone.")) {
+        return;
+      }
+      void clearAllPositions().then(() => {
+        positionsPageIndex = 0;
+        renderPositionsTableBody();
+      });
+    });
+  }
+  const btnPosPrev = document.getElementById("btn-positions-prev");
+  if (btnPosPrev) {
+    btnPosPrev.addEventListener("click", () => {
+      if (positionsPageIndex > 0) {
+        positionsPageIndex -= 1;
+        renderPositionsTableBody();
+      }
+    });
+  }
+  const btnPosNext = document.getElementById("btn-positions-next");
+  if (btnPosNext) {
+    btnPosNext.addEventListener("click", () => {
+      const n = loadLocalPositions().length;
+      if (n === 0) {
+        return;
+      }
+      const totalPages = Math.ceil(n / POSITIONS_PAGE_SIZE);
+      if (positionsPageIndex < totalPages - 1) {
+        positionsPageIndex += 1;
+        renderPositionsTableBody();
+      }
     });
   }
 

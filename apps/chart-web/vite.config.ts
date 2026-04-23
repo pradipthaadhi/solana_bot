@@ -337,6 +337,24 @@ function positionsFileApi(): Plugin {
           });
           return;
         }
+        if (req.method === "PUT") {
+          const chunks: Buffer[] = [];
+          req.on("data", (c: Buffer) => {
+            chunks.push(c);
+          });
+          req.on("end", () => {
+            try {
+              const body = Buffer.concat(chunks).toString("utf8");
+              fs.writeFileSync(positionsFile, body, "utf8");
+              res.statusCode = 204;
+              res.end();
+            } catch (e) {
+              res.statusCode = 500;
+              res.end(e instanceof Error ? e.message : String(e));
+            }
+          });
+          return;
+        }
         res.statusCode = 405;
         res.end();
       });

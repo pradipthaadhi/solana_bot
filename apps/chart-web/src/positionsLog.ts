@@ -94,6 +94,11 @@ export function rowToLine(r: PositionSignalRow): string {
   return `${JSON.stringify(r)}\n`;
 }
 
+/** Stable id for a row (matches merge/dedupe logic). */
+export function positionRowKey(r: PositionSignalRow): string {
+  return `${r.ts}\t${r.side}\t${r.pool}\t${r.barIndex}`;
+}
+
 /** All rows from localStorage (newest last in file order; we sort for display). */
 export function loadLocalPositions(): PositionSignalRow[] {
   return parsePositionsTxt(readLocalRaw());
@@ -101,10 +106,9 @@ export function loadLocalPositions(): PositionSignalRow[] {
 
 /** Merge server + local text, dedupe by ts|side|pool|barIndex. */
 export function mergePositionRows(a: readonly PositionSignalRow[], b: readonly PositionSignalRow[]): PositionSignalRow[] {
-  const key = (r: PositionSignalRow) => `${r.ts}\t${r.side}\t${r.pool}\t${r.barIndex}`;
   const map = new Map<string, PositionSignalRow>();
   for (const r of [...a, ...b]) {
-    map.set(key(r), r);
+    map.set(positionRowKey(r), r);
   }
   return [...map.values()].sort((x, y) => x.ts.localeCompare(y.ts));
 }
@@ -126,6 +130,36 @@ export async function appendPosition(row: PositionSignalRow): Promise<void> {
     });
   } catch {
     /* offline / static deploy */
+  }
+}
+
+/** Remove one row by {@link positionRowKey}. Updates localStorage and, in `chart:dev`, rewrites `positions.txt`. */
+export async function removePositionByKey(key: string): Promise<void> {
+  const cur = loadLocalPositions();
+  const next = cur.filter((r) => positionRowKey(r) !== key);
+  writeLocalRaw(formatPositionsTxt(next));
+  try {
+    await fetch(API, {
+      method: "PUT",
+      headers: { "Content-Type": "text/plain; charset=utf-8" },
+      body: formatPositionsTxt(next),
+    });
+  } catch {
+    /* offline / static deploy (no PUT handler) */
+  }
+}
+
+/** Remove every row (clears `localStorage` and, in `chart:dev`, writes an empty `positions.txt`). */
+export async function clearAllPositions(): Promise<void> {
+  writeLocalRaw("");
+  try {
+    await fetch(API, {
+      method: "PUT",
+      headers: { "Content-Type": "text/plain; charset=utf-8" },
+      body: "",
+    });
+  } catch {
+    /* offline / static deploy (no PUT handler) */
   }
 }
 
