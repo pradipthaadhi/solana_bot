@@ -35,7 +35,7 @@ import {
   mountChartToaster,
 } from "./chartToaster.js";
 import { notifyDesktop, requestNotifyPermission } from "./notify.js";
-import { DEFAULT_DEMO_POOL_ADDRESS } from "./defaults.js";
+import { DEFAULT_DEMO_PAIR_LABEL, DEFAULT_DEMO_POOL_ADDRESS } from "./defaults.js";
 import { downloadPositionsTxt, loadLocalPositions, syncPositionsFromServer } from "./positionsLog.js";
 import { runFirstVisitIntro } from "./firstVisitIntro.js";
 import { createAutoSwapExecutionAdapter } from "./signalAutoExecution.js";
@@ -462,7 +462,7 @@ async function mount(): Promise<void> {
   let chartPrimed = false;
 
   if (initialPool === DEFAULT_DEMO_POOL_ADDRESS) {
-    pair.textContent = `SOL/USDC · 1m · pool ${initialPool}`;
+    pair.textContent = `${DEFAULT_DEMO_PAIR_LABEL} · 1m · pool ${initialPool}`;
     subpair.textContent = "Demo pool — replace the address above for your pair.";
   } else if (fromUrl && fromUrl.length > 0) {
     pair.textContent = `…/… · 1m · pool ${initialPool}`;
@@ -479,7 +479,7 @@ async function mount(): Promise<void> {
   let sessionMergePool = "";
   let historyExhausted = false;
   let historyBusy = false;
-  let lastPairLabel = "SOL/USDC";
+  let lastPairLabel = DEFAULT_DEMO_PAIR_LABEL;
 
   // In `vite dev`, same-origin `/gt-api` uses `vite.config.ts` proxy (IPv4-preferring HTTPS agent) so flaky
   // browser/VPN/IPv6 paths do not block OHLCV. Production / `vite preview` hits Gecko directly.

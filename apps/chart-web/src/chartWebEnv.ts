@@ -6,10 +6,10 @@ export interface DeskEnv {
   maxInputRaw: bigint;
   mode: OperationalMode;
   killSwitch: boolean;
-  /** Lamports spent on each automated SIGNAL_ENTRY (ExactIn SOL → token). */
+  /** Lamports of SOL to spend on each SIGNAL_ENTRY (ExactIn SOL → x_token). 1e6 = 0.001 SOL. */
   signalBuyLamports: bigint;
-  /** Raw token units sold on each SIGNAL_EXIT (ExactIn token → SOL). */
-  signalSellTokenRaw: bigint;
+  /** Lamports of SOL to receive on each SIGNAL_EXIT (ExactOut x_token → SOL). 1e6 = 0.001 SOL. */
+  signalSellOutLamports: bigint;
   signalSlippageBps: number;
 }
 
@@ -30,12 +30,17 @@ export function readDeskEnv(): DeskEnv {
   const modeRaw = (import.meta.env.VITE_MODE ?? "paper").trim().toLowerCase();
   return {
     rpcUrl: (import.meta.env.VITE_RPC_URL ?? "https://api.mainnet-beta.solana.com").trim(),
+    // x/SOL desk: set to the x_token mint (e.g. USELESS), not USDC, so BUY spends SOL for x and SELL returns SOL from x.
     tokenMint: (import.meta.env.VITE_TOKEN_MINT ?? "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v").trim(),
     maxInputRaw: BigInt(import.meta.env.VITE_SOL_BOT_MAX_INPUT_RAW ?? "5000000"),
     mode: parseMode(modeRaw),
     killSwitch: import.meta.env.VITE_SOL_BOT_KILL_SWITCH === "1",
     signalBuyLamports: BigInt(import.meta.env.VITE_SIGNAL_BUY_LAMPORTS ?? "1000000"),
-    signalSellTokenRaw: BigInt(import.meta.env.VITE_SIGNAL_SELL_TOKEN_RAW ?? "10000"),
+    signalSellOutLamports: BigInt(
+      import.meta.env.VITE_SIGNAL_SELL_OUT_LAMPORTS?.trim() ||
+        import.meta.env.VITE_SIGNAL_BUY_LAMPORTS?.trim() ||
+        "1000000",
+    ),
     signalSlippageBps: parseSlippageBps(import.meta.env.VITE_SIGNAL_SLIPPAGE_BPS),
   };
 }

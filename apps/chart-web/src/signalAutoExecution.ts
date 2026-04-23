@@ -58,7 +58,7 @@ function innerAutoAdapter(pairLabel: string, poolAddress: string, onPersisted: (
       };
     }
     if (deskEnv.tokenMint.length === 0) {
-      return { ...row, txStatus: "skipped", txDetail: "VITE_TOKEN_MINT is empty." };
+      return { ...row, txStatus: "skipped", txDetail: "VITE_TOKEN_MINT is empty (set to the x_token mint for x/SOL, e.g. USELESS)." };
     }
 
     const conn = new Connection(deskEnv.rpcUrl, {
@@ -103,8 +103,9 @@ function innerAutoAdapter(pairLabel: string, poolAddress: string, onPersisted: (
         quoteParams: {
           inputMint: deskEnv.tokenMint,
           outputMint: NATIVE_SOL_MINT,
-          amount: deskEnv.signalSellTokenRaw,
+          amount: deskEnv.signalSellOutLamports,
           slippageBps: deskEnv.signalSlippageBps,
+          swapMode: "ExactOut",
         },
         rails,
         signTransaction,

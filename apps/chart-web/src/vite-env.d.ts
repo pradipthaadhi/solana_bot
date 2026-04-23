@@ -8,10 +8,10 @@ interface ImportMetaEnv {
   readonly VITE_SOL_BOT_KILL_SWITCH?: string;
   /** Override Jupiter Swap API v1 root (default: proxied `/jupiter-api` locally, else https://api.jup.ag/swap/v1). */
   readonly VITE_JUPITER_API_BASE?: string;
-  /** Lamports spent per automated SIGNAL_ENTRY swap (default 1_000_000 = 0.001 SOL). */
+  /** Lamports spent per automated SIGNAL_ENTRY (ExactIn: SOL → x_token, default 1_000_000 = 0.001 SOL). */
   readonly VITE_SIGNAL_BUY_LAMPORTS?: string;
-  /** Raw token units sold per automated SIGNAL_EXIT (ExactIn; set for mint decimals). */
-  readonly VITE_SIGNAL_SELL_TOKEN_RAW?: string;
+  /** Lamports of SOL to receive on SIGNAL_EXIT (ExactOut: x_token → SOL; default = buy or 1_000_000 = 0.001 SOL). */
+  readonly VITE_SIGNAL_SELL_OUT_LAMPORTS?: string;
   readonly VITE_SIGNAL_SLIPPAGE_BPS?: string;
   /**
    * Hot-wallet secret for automated strategy swaps (base58 or JSON byte array; same as Phantom export).
