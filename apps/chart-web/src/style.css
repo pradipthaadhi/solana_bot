@@ -128,7 +128,10 @@ html::after {
 
   html::before,
   html::after,
-  body::before {
+  body::before,
+  .page-light-fx,
+  .page-light-fx::before,
+  .page-light-fx::after {
     animation: none !important;
   }
 }
@@ -171,6 +174,80 @@ body {
   margin: 0;
   min-height: 100vh;
   background: transparent;
+}
+
+/* Drifting “light” lines over the background — sits above the grid, below #app. */
+.page-light-fx {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  overflow: hidden;
+  mix-blend-mode: screen;
+  opacity: 0.72;
+  mask-image: radial-gradient(ellipse 95% 85% at 50% 42%, rgba(0, 0, 0, 0.88) 0%, transparent 72%);
+  mask-size: 100% 100%;
+  isolation: isolate;
+}
+
+.page-light-fx::before,
+.page-light-fx::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 220%;
+  height: 220%;
+  margin-top: -110%;
+  margin-left: -110%;
+  will-change: transform;
+}
+
+.page-light-fx::before {
+  background: repeating-linear-gradient(
+    118deg,
+    transparent 0 116px,
+    rgba(20, 241, 149, 0) 116px 117.2px,
+    rgba(34, 211, 238, 0.55) 117.2px 117.8px,
+    rgba(20, 241, 149, 0.2) 117.8px 118.5px,
+    transparent 118.5px 240px
+  );
+  transform-origin: 50% 50%;
+  animation: page-light-sweep-1 42s var(--ease-out) infinite alternate;
+  opacity: 0.85;
+}
+
+.page-light-fx::after {
+  background: repeating-linear-gradient(
+    34deg,
+    transparent 0 140px,
+    rgba(153, 69, 255, 0) 140px 141.1px,
+    rgba(200, 170, 255, 0.5) 141.1px 141.7px,
+    rgba(153, 69, 255, 0.2) 141.7px 142.6px,
+    transparent 142.6px 300px
+  );
+  transform-origin: 50% 50%;
+  animation: page-light-sweep-2 58s var(--ease-out) infinite alternate;
+  animation-delay: -8s;
+  opacity: 0.75;
+}
+
+@keyframes page-light-sweep-1 {
+  0% {
+    transform: rotate(118deg) translate(-6%, 2%) scale(1);
+  }
+  100% {
+    transform: rotate(120deg) translate(8%, -5%) scale(1.04);
+  }
+}
+
+@keyframes page-light-sweep-2 {
+  0% {
+    transform: rotate(34deg) translate(4%, 6%) scale(1.02);
+  }
+  100% {
+    transform: rotate(32deg) translate(-7%, -4%) scale(1);
+  }
 }
 
 body::before {
@@ -219,7 +296,7 @@ body::after {
 
 #app {
   position: relative;
-  z-index: 1;
+  z-index: 2;
   max-width: 1240px;
   margin: 0 auto;
   padding: 20px 20px 40px;
