@@ -9,6 +9,7 @@ import { readDeskEnv } from "./chartWebEnv.js";
 import { resolveJupiterApiBaseUrl } from "./jupiterApiBaseUrl.js";
 import { getSessionTradingKeypair } from "./sessionTradingKey.js";
 import { getSessionPoolSwapTokenMint } from "./sessionPoolSwapMint.js";
+import { newTradeId, onBuyFilledPool, onSellFilledPool, peekOpenBuyTradeIdForPool } from "./sessionTradePairing.js";
 import { getSignalAutoTradeLamports } from "./signalTradeAmount.js";
 import { readWalletSplTokenBalanceRaw } from "./splTokenBalance.js";
 import {
@@ -32,8 +33,10 @@ function buildRow(
   pairLabel: string,
   poolAddress: string,
   p: ExecutionSignalPayload,
+  /** BUY: new id; SELL: id of the open BUY (FIFO) this exit closes, if any. */
+  tradeId?: string,
 ): PositionSignalRow {
-  return {
+  const r: PositionSignalRow = {
     ts: new Date(p.timeMs).toISOString(),
     side,
     pair: pairLabel,
@@ -41,6 +44,10 @@ function buildRow(
     barIndex: p.barIndex,
     reason: p.reason,
   };
+  if (tradeId !== undefined && tradeId.length > 0) {
+    r.tradeId = tradeId;
+  }
+  return r;
 }
 
 function innerAutoAdapter(pairLabel: string, poolAddress: string, onPersisted: () => void): ExecutionAdapter {
@@ -194,8 +201,12 @@ function innerAutoAdapter(pairLabel: string, poolAddress: string, onPersisted: (
 
   return {
     async onSignalEntry(p: ExecutionSignalPayload) {
-      const row = buildRow("BUY", pairLabel, poolAddress, p);
+      const buyId = newTradeId();
+      const row = buildRow("BUY", pairLabel, poolAddress, p, buyId);
       const finalRow = await maybeSwap("BUY", row);
+      if (finalRow.txStatus === "ok") {
+        onBuyFilledPool(poolAddress, buyId);
+      }
       await appendPosition(finalRow);
       onPersisted();
       const msg = `${p.reason}\n${row.ts}`;
@@ -206,8 +217,12 @@ function innerAutoAdapter(pairLabel: string, poolAddress: string, onPersisted: (
       chartToastBuySignalDone(pairLabel, p.reason, row.ts);
     },
     async onSignalExit(p: ExecutionSignalPayload) {
-      const row = buildRow("SELL", pairLabel, poolAddress, p);
+      const sellRef = peekOpenBuyTradeIdForPool(poolAddress);
+      const row = buildRow("SELL", pairLabel, poolAddress, p, sellRef);
       const finalRow = await maybeSwap("SELL", row);
+      if (finalRow.txStatus === "ok") {
+        onSellFilledPool(poolAddress);
+      }
       await appendPosition(finalRow);
       onPersisted();
       const msg = `${p.reason}\n${row.ts}`;

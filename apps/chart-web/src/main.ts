@@ -383,11 +383,12 @@ async function mount(): Promise<void> {
             <button id="btn-positions-export" type="button">Download positions.txt</button>
           </div>
         </div>
-        <p class="hint signal-log-hint">Newest first, <b>15 rows per page</b>. <b>Tx</b> shows on-chain outcome for auto-execution (success / error / skipped). Per-row trash removes one entry; the header control deletes the full history. In <code>npm run chart:dev</code> the dev server rewrites <code>apps/chart-web/positions.txt</code> (<code>PUT /api/positions</code>); otherwise <b>Download</b> saves your local list.</p>
+        <p class="hint signal-log-hint">Newest first, <b>15 rows per page</b>. <b>Trade ID</b> is unique per BUY; the matching SELL reuses that id. <b>Tx</b> shows on-chain outcome (success / error / skipped). Per-row trash; header clears the full log. <code>npm run chart:dev</code> syncs to <code>positions.txt</code>; otherwise <b>Download</b> saves the list.</p>
         <div class="table-scroll">
           <table class="positions-table" aria-label="Historical BUY and SELL signals">
             <thead>
               <tr>
+                <th>Trade ID</th>
                 <th>Time (UTC)</th>
                 <th>Side</th>
                 <th>Pair</th>
@@ -462,6 +463,17 @@ async function mount(): Promise<void> {
 
     for (const r of pageRows) {
       const tr = document.createElement("tr");
+      const tdId = document.createElement("td");
+      tdId.className = "trade-id-cell";
+      if (r.tradeId && r.tradeId.length > 0) {
+        const id = r.tradeId;
+        tdId.textContent = id.length > 12 ? `${id.slice(0, 8)}…` : id;
+        tdId.title = id;
+        tdId.setAttribute("data-full-trade-id", id);
+      } else {
+        tdId.textContent = "—";
+        tdId.classList.add("tx-missing");
+      }
       const tdTs = document.createElement("td");
       tdTs.textContent = r.ts;
       const tdSide = document.createElement("td");
@@ -532,7 +544,7 @@ async function mount(): Promise<void> {
         void removePositionByKey(key).then(() => renderPositionsTableBody());
       });
       tdActions.appendChild(delBtn);
-      tr.append(tdTs, tdSide, tdPair, tdPool, tdBar, tdReason, tdTx, tdTxDetail, tdActions);
+      tr.append(tdId, tdTs, tdSide, tdPair, tdPool, tdBar, tdReason, tdTx, tdTxDetail, tdActions);
       tbody.appendChild(tr);
     }
     const clearAllBtn = document.getElementById("btn-positions-clear-all");

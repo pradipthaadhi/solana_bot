@@ -8,6 +8,11 @@ export type TradeSide = "BUY" | "SELL";
 export type SignalTxStatus = "ok" | "error" | "skipped";
 
 export interface PositionSignalRow {
+  /**
+   * Unique per BUY; the matching SELL row repeats this id (FIFO by pool) so you can see which exit belongs to which entry.
+   * Older log lines may omit this field.
+   */
+  tradeId?: string;
   /** ISO 8601 (bar close / signal time). */
   ts: string;
   side: TradeSide;
@@ -85,6 +90,9 @@ function isRow(x: unknown): x is PositionSignalRow {
     return false;
   }
   if (r.signature !== undefined && typeof r.signature !== "string") {
+    return false;
+  }
+  if (r.tradeId !== undefined && typeof r.tradeId !== "string") {
     return false;
   }
   return true;
