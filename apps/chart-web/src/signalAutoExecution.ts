@@ -8,6 +8,7 @@ import { appendPosition, type PositionSignalRow } from "./positionsLog.js";
 import { readDeskEnv } from "./chartWebEnv.js";
 import { resolveJupiterApiBaseUrl } from "./jupiterApiBaseUrl.js";
 import { getSessionTradingKeypair } from "./sessionTradingKey.js";
+import { getSessionPoolSwapTokenMint } from "./sessionPoolSwapMint.js";
 import { getSignalAutoTradeLamports } from "./signalTradeAmount.js";
 import {
   chartToastBuySignalDone,
@@ -58,8 +59,14 @@ function innerAutoAdapter(pairLabel: string, poolAddress: string, onPersisted: (
         txDetail: `VITE_MODE=${deskEnv.mode} — set VITE_MODE=live to broadcast auto-swaps.`,
       };
     }
-    if (deskEnv.tokenMint.length === 0) {
-      return { ...row, txStatus: "skipped", txDetail: "VITE_TOKEN_MINT is empty (set to the x_token mint for x/SOL, e.g. USELESS)." };
+    const tokenMint = getSessionPoolSwapTokenMint(deskEnv.tokenMint).trim();
+    if (tokenMint.length === 0) {
+      return {
+        ...row,
+        txStatus: "skipped",
+        txDetail:
+          "No token mint: load the pool (Gecko should supply base/quote, including x/SOL) or set VITE_TOKEN_MINT in .env.",
+      };
     }
 
     const am = getSignalAutoTradeLamports();
@@ -87,7 +94,7 @@ function innerAutoAdapter(pairLabel: string, poolAddress: string, onPersisted: (
           userPublicKeyBase58: kp.publicKey.toBase58(),
           quoteParams: {
             inputMint: NATIVE_SOL_MINT,
-            outputMint: deskEnv.tokenMint,
+            outputMint: tokenMint,
             amount: buyLamports,
             slippageBps: deskEnv.signalSlippageBps,
           },
@@ -109,7 +116,7 @@ function innerAutoAdapter(pairLabel: string, poolAddress: string, onPersisted: (
         connection: conn,
         userPublicKeyBase58: kp.publicKey.toBase58(),
         quoteParams: {
-          inputMint: deskEnv.tokenMint,
+          inputMint: tokenMint,
           outputMint: NATIVE_SOL_MINT,
           amount: sellLamports,
           slippageBps: deskEnv.signalSlippageBps,

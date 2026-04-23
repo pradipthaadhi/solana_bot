@@ -20,6 +20,7 @@ import {
   fetchSolanaPoolOhlcv1m,
   mergeTailRefresh,
   prependOlderOhlcv,
+  resolveAltTokenMintForSolPool,
 } from "@bot/data/geckoTerminalOhlcv.js";
 import type { Ohlcv } from "@bot/strategy/candleSemantics.js";
 import type { BarIndicators } from "@bot/strategy/barIndicators.js";
@@ -41,6 +42,7 @@ import { runFirstVisitIntro } from "./firstVisitIntro.js";
 import { createAutoSwapExecutionAdapter } from "./signalAutoExecution.js";
 import { initDeskTradingKeyFromEnv } from "./sessionTradingKey.js";
 import { setSignalAutoSolInputToEnvDefaults } from "./signalTradeAmount.js";
+import { setSessionPoolSwapTokenMint } from "./sessionPoolSwapMint.js";
 
 /** Recent bars considered for ENTRY/EXIT hooks + toasts (TWO_GREEN entry often completes on lastIdx-1). */
 const EXEC_SIGNAL_TAIL_LOOKBACK = 3;
@@ -673,7 +675,7 @@ async function mount(): Promise<void> {
     const beforeLen = sessionBars.length;
     try {
       const oldestSec = Math.floor(sessionBars[0]!.timeMs / 1000);
-      const { bars: chunk } = await fetchSolanaPoolOhlcv1m({
+      const { bars: chunk, meta: olderMeta } = await fetchSolanaPoolOhlcv1m({
         poolAddress: pool,
         limit: HISTORY_PAGE_LIMIT,
         beforeTimestampSec: oldestSec,
@@ -681,6 +683,10 @@ async function mount(): Promise<void> {
         maxAttempts: geckoFetchAttempts,
         fetchTimeoutMs: geckoFetchTimeoutMs,
       });
+      const altOlder = resolveAltTokenMintForSolPool(olderMeta);
+      if (altOlder !== null) {
+        setSessionPoolSwapTokenMint(altOlder);
+      }
       if (chunk.length === 0) {
         historyExhausted = true;
         return;
@@ -765,6 +771,7 @@ async function mount(): Promise<void> {
     const pool = poolInput.value.trim();
     const silent = opts?.silent === true;
     if (!pool) {
+      setSessionPoolSwapTokenMint(null);
       showBanner(
         "info",
         "Paste a Solana AMM pool address (GeckoTerminal pool id) and click Load. Find it on DexScreener → same pool on GeckoTerminal OHLCV.",
@@ -804,6 +811,9 @@ async function mount(): Promise<void> {
         historyExhausted = false;
       }
       sessionBars = mergeTailRefresh(sessionBars, bars);
+
+      const altMint = resolveAltTokenMintForSolPool(meta);
+      setSessionPoolSwapTokenMint(altMint);
 
       const label = `${meta.baseSymbol ?? "BASE"}/${meta.quoteSymbol ?? "QUOTE"}`;
       lastPairLabel = label;

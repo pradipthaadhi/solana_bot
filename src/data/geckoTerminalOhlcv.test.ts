@@ -7,6 +7,8 @@ import {
   mergeTailRefresh,
   parseGeckoTerminalOhlcvJson,
   prependOlderOhlcv,
+  resolveAltTokenMintForSolPool,
+  WSOL_MINT,
 } from "./geckoTerminalOhlcv.js";
 
 function bar(timeSec: number, close: number): Ohlcv {
@@ -60,6 +62,35 @@ describe("geckoTerminalOhlcv", () => {
     expect(bars).toHaveLength(1);
     expect(meta.baseSymbol).toBe("AAA");
     expect(meta.quoteSymbol).toBe("BBB");
+  });
+
+  it("parses token addresses from meta and resolves alt mint for SOL pair", () => {
+    const x = "Use1e55ssMINTxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx";
+    const json = {
+      data: { attributes: { ohlcv_list: [[1_000, 1, 1, 1, 1, 1]] } },
+      meta: {
+        base: { symbol: "USELESS", address: x },
+        quote: { symbol: "SOL", address: WSOL_MINT },
+      },
+    };
+    const { meta } = parseGeckoTerminalOhlcvJson(json);
+    expect(meta.baseTokenAddress).toBe(x);
+    expect(meta.quoteTokenAddress).toBe(WSOL_MINT);
+    expect(resolveAltTokenMintForSolPool(meta)).toBe(x);
+    const inv = parseGeckoTerminalOhlcvJson({
+      data: { attributes: { ohlcv_list: [[1_000, 1, 1, 1, 1, 1]] } },
+      meta: {
+        base: { symbol: "SOL", address: WSOL_MINT },
+        quote: { symbol: "USELESS", address: x },
+      },
+    }).meta;
+    expect(resolveAltTokenMintForSolPool(inv)).toBe(x);
+    expect(
+      resolveAltTokenMintForSolPool({
+        baseTokenAddress: "TokenA",
+        quoteTokenAddress: "TokenB",
+      }),
+    ).toBeNull();
   });
 });
 

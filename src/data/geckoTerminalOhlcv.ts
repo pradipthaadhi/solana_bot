@@ -7,9 +7,16 @@ import type { Ohlcv } from "../strategy/candleSemantics.js";
 
 const ACCEPT_VERSION = "application/json;version=20230203";
 
+/** Wrapped SOL (same on mainnet; Jupiter uses this for native SOL in/out). */
+export const WSOL_MINT = "So11111111111111111111111111111111111111112";
+
 export type GeckoTerminalPoolMeta = {
   baseSymbol?: string;
   quoteSymbol?: string;
+  /** Base token mint (Solana base58) when present on OHLCV `meta`. */
+  baseTokenAddress?: string;
+  /** Quote token mint (Solana base58) when present on OHLCV `meta`. */
+  quoteTokenAddress?: string;
 };
 
 export interface GeckoTerminalOhlcvResult {
@@ -66,6 +73,8 @@ function parseMeta(payload: unknown): GeckoTerminalPoolMeta {
   const quote = meta.quote;
   const baseSymbol = isRecord(base) && typeof base.symbol === "string" ? base.symbol : undefined;
   const quoteSymbol = isRecord(quote) && typeof quote.symbol === "string" ? quote.symbol : undefined;
+  const baseTokenAddress = isRecord(base) && typeof base.address === "string" ? base.address.trim() : undefined;
+  const quoteTokenAddress = isRecord(quote) && typeof quote.address === "string" ? quote.address.trim() : undefined;
   const out: GeckoTerminalPoolMeta = {};
   if (baseSymbol !== undefined) {
     out.baseSymbol = baseSymbol;
@@ -73,7 +82,34 @@ function parseMeta(payload: unknown): GeckoTerminalPoolMeta {
   if (quoteSymbol !== undefined) {
     out.quoteSymbol = quoteSymbol;
   }
+  if (baseTokenAddress !== undefined && baseTokenAddress.length > 0) {
+    out.baseTokenAddress = baseTokenAddress;
+  }
+  if (quoteTokenAddress !== undefined && quoteTokenAddress.length > 0) {
+    out.quoteTokenAddress = quoteTokenAddress;
+  }
   return out;
+}
+
+/**
+ * For a pool like USELESS/SOL, Gecko marks one side as {@link WSOL_MINT} and the other as the SPL token.
+ * Return that **non-WSOL** mint for routing SOL ↔ x_token. If both or neither are WSOL, return `null` (use `.env` fallback).
+ */
+export function resolveAltTokenMintForSolPool(m: GeckoTerminalPoolMeta): string | null {
+  const b = m.baseTokenAddress?.trim() ?? "";
+  const q = m.quoteTokenAddress?.trim() ?? "";
+  if (b.length === 0 && q.length === 0) {
+    return null;
+  }
+  const bIs = b === WSOL_MINT;
+  const qIs = q === WSOL_MINT;
+  if (bIs && !qIs && q.length > 0) {
+    return q;
+  }
+  if (qIs && !bIs && b.length > 0) {
+    return b;
+  }
+  return null;
 }
 
 export function parseGeckoTerminalOhlcvJson(payload: unknown): GeckoTerminalOhlcvResult {
