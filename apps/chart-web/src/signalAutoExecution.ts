@@ -8,6 +8,7 @@ import { appendPosition, type PositionSignalRow } from "./positionsLog.js";
 import { readDeskEnv } from "./chartWebEnv.js";
 import { resolveJupiterApiBaseUrl } from "./jupiterApiBaseUrl.js";
 import { getSessionTradingKeypair } from "./sessionTradingKey.js";
+import { getSignalAutoTradeLamports } from "./signalTradeAmount.js";
 import {
   chartToastBuySignalDone,
   chartToastError,
@@ -61,6 +62,13 @@ function innerAutoAdapter(pairLabel: string, poolAddress: string, onPersisted: (
       return { ...row, txStatus: "skipped", txDetail: "VITE_TOKEN_MINT is empty (set to the x_token mint for x/SOL, e.g. USELESS)." };
     }
 
+    const am = getSignalAutoTradeLamports();
+    if (!am.ok) {
+      return { ...row, txStatus: "skipped", txDetail: `Auto-signal size: ${am.error}` };
+    }
+    const buyLamports = am.buy;
+    const sellLamports = am.sell;
+
     const conn = new Connection(deskEnv.rpcUrl, {
       commitment: "confirmed",
       confirmTransactionInitialTimeout: 90_000,
@@ -80,7 +88,7 @@ function innerAutoAdapter(pairLabel: string, poolAddress: string, onPersisted: (
           quoteParams: {
             inputMint: NATIVE_SOL_MINT,
             outputMint: deskEnv.tokenMint,
-            amount: deskEnv.signalBuyLamports,
+            amount: buyLamports,
             slippageBps: deskEnv.signalSlippageBps,
           },
           rails,
@@ -103,7 +111,7 @@ function innerAutoAdapter(pairLabel: string, poolAddress: string, onPersisted: (
         quoteParams: {
           inputMint: deskEnv.tokenMint,
           outputMint: NATIVE_SOL_MINT,
-          amount: deskEnv.signalSellOutLamports,
+          amount: sellLamports,
           slippageBps: deskEnv.signalSlippageBps,
           swapMode: "ExactOut",
         },

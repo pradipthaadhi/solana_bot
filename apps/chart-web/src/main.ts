@@ -40,6 +40,7 @@ import { downloadPositionsTxt, loadLocalPositions, syncPositionsFromServer } fro
 import { runFirstVisitIntro } from "./firstVisitIntro.js";
 import { createAutoSwapExecutionAdapter } from "./signalAutoExecution.js";
 import { initDeskTradingKeyFromEnv } from "./sessionTradingKey.js";
+import { setSignalAutoSolInputToEnvDefaults } from "./signalTradeAmount.js";
 
 /** Recent bars considered for ENTRY/EXIT hooks + toasts (TWO_GREEN entry often completes on lastIdx-1). */
 const EXEC_SIGNAL_TAIL_LOOKBACK = 3;
@@ -340,6 +341,18 @@ async function mount(): Promise<void> {
             <div class="metric"><div class="k">VWMA (9)</div><div class="v" id="m-9">—</div></div>
             <div class="metric"><div class="k">VWMA (18)</div><div class="v" id="m-18">—</div></div>
           </div>
+          <div class="signal-auto-sol-row" role="group" aria-label="Auto-signal swap size in SOL">
+            <label class="signal-auto-sol-label" for="signal-auto-sol-amount">Auto-signal size (SOL)</label>
+            <input
+              id="signal-auto-sol-amount"
+              class="signal-auto-sol-input"
+              type="text"
+              inputmode="decimal"
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <p class="hint signal-auto-sol-hint">BUY: SOL spent. SELL: SOL received. Cleared = use <code class="env-code">.env</code> defaults.</p>
+          </div>
           <div id="crosshair-hud" class="crosshair-hud" aria-live="polite"></div>
           <div id="banner" style="display:none" class="banner"></div>
           <div class="chart-wrap">
@@ -451,6 +464,7 @@ async function mount(): Promise<void> {
 
   const poolInput = $("#pool") as HTMLInputElement;
   poolInput.value = initialPool;
+  setSignalAutoSolInputToEnvDefaults();
 
   const btnLoad = $("#btn-load") as HTMLButtonElement;
   const btnNotify = $("#btn-notify") as HTMLButtonElement;
