@@ -1596,10 +1596,14 @@ button.btn-ghost-pill:not(:disabled):hover {
   vertical-align: top;
 }
 
-.positions-table__th-actions,
-.positions-table__cell-actions {
+/* Beats `.positions-table th, td { text-align: left; vertical-align: top }` so both header + row controls align. */
+.positions-table th.positions-table__th-actions,
+.positions-table td.positions-table__cell-actions {
   text-align: center;
   vertical-align: middle;
+  min-width: 3.25rem;
+  padding: 11px 10px;
+  box-sizing: border-box;
 }
 
 .positions-actions-head {
@@ -1608,11 +1612,16 @@ button.btn-ghost-pill:not(:disabled):hover {
   align-items: center;
   justify-content: center;
   gap: 8px;
+  width: 100%;
+  margin: 0 auto;
+  box-sizing: border-box;
 }
 
 .positions-actions-head__label {
   display: block;
   line-height: 1.2;
+  text-align: center;
+  width: 100%;
 }
 
 .positions-table th {
@@ -1635,6 +1644,15 @@ button.btn-ghost-pill:not(:disabled):hover {
 
 .positions-table tr:last-child td {
   border-bottom: none;
+}
+
+.positions-table .trade-id-cell {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  max-width: 120px;
+  word-break: break-all;
+  vertical-align: middle;
+  color: var(--text-muted);
 }
 
 .positions-table .mono {
@@ -1707,20 +1725,19 @@ button.btn-ghost-pill:not(:disabled):hover {
   padding: 0;
   margin: 0;
   line-height: 0;
+  border: none;
   border-radius: 6px;
   cursor: pointer;
   flex-shrink: 0;
-  transition: background 0.15s var(--ease-out), border-color 0.15s var(--ease-out);
+  transition: background 0.15s var(--ease-out), opacity 0.15s var(--ease-out);
 }
 
 .position-row-delete {
-  border: 1px solid rgba(248, 113, 113, 0.45);
   background: rgba(248, 113, 113, 0.1);
   color: #f87171;
 }
 
 .position-clear-all {
-  border: 1px solid rgba(251, 146, 60, 0.55);
   background: rgba(251, 146, 60, 0.12);
   color: #fb923c;
 }
@@ -1731,13 +1748,11 @@ button.btn-ghost-pill:not(:disabled):hover {
 }
 
 .position-row-delete:hover {
-  background: rgba(248, 113, 113, 0.18);
-  border-color: rgba(248, 113, 113, 0.65);
+  background: rgba(248, 113, 113, 0.2);
 }
 
 .position-clear-all:hover:not(:disabled) {
-  background: rgba(251, 146, 60, 0.22);
-  border-color: rgba(251, 146, 60, 0.75);
+  background: rgba(251, 146, 60, 0.24);
 }
 
 .position-row-delete:focus-visible {
