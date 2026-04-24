@@ -46,6 +46,7 @@ import {
   syncPositionsFromServer,
 } from "./positionsLog.js";
 import { runFirstVisitIntro } from "./firstVisitIntro.js";
+import { bindLoadingNotice } from "./loadingNotice.js";
 import { createAutoSwapExecutionAdapter } from "./signalAutoExecution.js";
 import { initDeskTradingKeyFromEnv } from "./sessionTradingKey.js";
 import { setSignalAutoSolInputToEnvDefaults } from "./signalTradeAmount.js";
@@ -276,6 +277,7 @@ function tailWindowEvents(events: readonly StrategyEvent[], lastIndex: number, l
 }
 
 async function mount(): Promise<void> {
+  bindLoadingNotice();
   mountChartToaster();
   const keyInit = initDeskTradingKeyFromEnv();
   if (!keyInit.ok) {
