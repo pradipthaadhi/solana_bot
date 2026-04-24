@@ -10,11 +10,12 @@ import { resolveJupiterApiBaseUrl } from "./jupiterApiBaseUrl.js";
 import { getSessionTradingKeypair } from "./sessionTradingKey.js";
 import { getSessionPoolSwapTokenMint } from "./sessionPoolSwapMint.js";
 import {
-  hasOpenPositionForPool,
   newTradeId,
   onBuyFilledPool,
   onSellFilledPool,
   peekOpenBuyTradeIdForPool,
+  releaseOpenBuyIfMatches,
+  tryReserveOpenBuyForPool,
 } from "./sessionTradePairing.js";
 import { getSignalAutoTradeLamports } from "./signalTradeAmount.js";
 import { readWalletSplTokenBalanceRaw } from "./splTokenBalance.js";
@@ -113,14 +114,6 @@ function innerAutoAdapter(pairLabel: string, poolAddress: string, onPersisted: (
 
     try {
       if (side === "BUY") {
-        if (hasOpenPositionForPool(row.pool)) {
-          return {
-            ...row,
-            txStatus: "skipped",
-            txDetail:
-              "Open position already — this BUY is skipped until the position is closed (SELL) for this pool. One open position at a time.",
-          };
-        }
         const res = await executeJupiterSwap({
           connection: conn,
           userPublicKeyBase58: kp.publicKey.toBase58(),
@@ -217,9 +210,24 @@ function innerAutoAdapter(pairLabel: string, poolAddress: string, onPersisted: (
   return {
     async onSignalEntry(p: ExecutionSignalPayload) {
       const buyId = newTradeId();
+      if (!tryReserveOpenBuyForPool(poolAddress, buyId)) {
+        const row = buildRow("BUY", pairLabel, poolAddress, p, buyId);
+        const finalRow: PositionSignalRow = {
+          ...row,
+          txStatus: "skipped",
+          txDetail:
+            "Open position already (or a BUY is in flight) — no new entry until a successful SELL for this pool. One at a time.",
+        };
+        await appendPosition(finalRow);
+        onPersisted();
+        chartToastInfo("BUY skipped (one open position)", finalRow.txDetail ?? "");
+        return;
+      }
       const row = buildRow("BUY", pairLabel, poolAddress, p, buyId);
       const finalRow = await maybeSwap("BUY", row);
-      if (finalRow.txStatus === "ok") {
+      if (finalRow.txStatus !== "ok") {
+        releaseOpenBuyIfMatches(poolAddress, buyId);
+      } else {
         onBuyFilledPool(poolAddress, buyId);
       }
       await appendPosition(finalRow);

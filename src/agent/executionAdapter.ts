@@ -34,7 +34,9 @@ export class CapturingExecutionAdapter implements ExecutionAdapter {
 }
 
 /**
- * Wraps an adapter so each distinct `(barIndex, timeMs)` fires at most once per kind across polls.
+ * Wraps an adapter so each distinct `timeMs` fires at most once per kind across polls.
+ * Bar index is intentionally omitted: it shifts when prepending history, which would
+ * re-fire the same candle’s signal under a new key. Time (bar open/close) is stable.
  * Without this, `tail_bar_only` hooks can repeat the same historical `SIGNAL_*` on every poll.
  */
 export function createDedupingExecutionAdapter(
@@ -42,7 +44,7 @@ export function createDedupingExecutionAdapter(
   seen: Set<string> = new Set(),
 ): ExecutionAdapter {
   const dedupe = (kind: "ENTRY" | "EXIT", payload: ExecutionSignalPayload): boolean => {
-    const key = `${kind}:${payload.barIndex}:${payload.timeMs}`;
+    const key = `${kind}:${payload.timeMs}`;
     if (seen.has(key)) {
       return false;
     }

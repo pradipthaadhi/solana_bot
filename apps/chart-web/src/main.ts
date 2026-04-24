@@ -50,6 +50,7 @@ import { createAutoSwapExecutionAdapter } from "./signalAutoExecution.js";
 import { initDeskTradingKeyFromEnv } from "./sessionTradingKey.js";
 import { setSignalAutoSolInputToEnvDefaults } from "./signalTradeAmount.js";
 import { setSessionPoolSwapTokenMint } from "./sessionPoolSwapMint.js";
+import { clearInMemoryOpenPositions, rehydrateOpenPositionFromLog } from "./sessionTradePairing.js";
 
 /** Icon-only control for removing a row from the signal log (label via `aria-label` on the button). */
 const TRASH_SVG = `<svg class="position-row-delete__icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>`;
@@ -796,6 +797,7 @@ async function mount(): Promise<void> {
         historyExhausted = true;
         return;
       }
+      rehydrateOpenPositionFromLog(pool, loadLocalPositions());
       const agent = new SignalAgent({
         strategy: DEFAULT_STRATEGY_CONFIG,
         execution: createAutoSwapExecutionAdapter(lastPairLabel, pool, autoSwapDedupe, renderPositionsTableBody),
@@ -916,6 +918,7 @@ async function mount(): Promise<void> {
 
       const label = `${meta.baseSymbol ?? "BASE"}/${meta.quoteSymbol ?? "QUOTE"}`;
       lastPairLabel = label;
+      rehydrateOpenPositionFromLog(pool, loadLocalPositions());
       pair.textContent = `${label} · 1m · pool ${pool}`;
       subpair.textContent =
         pool === DEFAULT_DEMO_POOL_ADDRESS
@@ -1009,7 +1012,13 @@ async function mount(): Promise<void> {
   const btnPosRefresh = document.getElementById("btn-positions-refresh");
   if (btnPosRefresh) {
     btnPosRefresh.addEventListener("click", () => {
-      void syncPositionsFromServer().then(renderPositionsTableBody);
+      void syncPositionsFromServer().then(() => {
+        const p = poolInput.value.trim();
+        if (p) {
+          rehydrateOpenPositionFromLog(p, loadLocalPositions());
+        }
+        renderPositionsTableBody();
+      });
     });
   }
   const btnPosExport = document.getElementById("btn-positions-export");
@@ -1028,6 +1037,7 @@ async function mount(): Promise<void> {
         return;
       }
       void clearAllPositions().then(() => {
+        clearInMemoryOpenPositions();
         positionsPageIndex = 0;
         renderPositionsTableBody();
       });
@@ -1057,7 +1067,13 @@ async function mount(): Promise<void> {
     });
   }
 
-  void syncPositionsFromServer().then(renderPositionsTableBody);
+  void syncPositionsFromServer().then(() => {
+    const p = poolInput.value.trim();
+    if (p) {
+      rehydrateOpenPositionFromLog(p, loadLocalPositions());
+    }
+    renderPositionsTableBody();
+  });
 
   void tick({ silent: false });
   timer = window.setInterval(() => void tick({ silent: chartPrimed }), 60_000);
