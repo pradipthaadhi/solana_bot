@@ -46,6 +46,7 @@ import {
   syncPositionsFromServer,
 } from "./positionsLog.js";
 import { runFirstVisitIntro } from "./firstVisitIntro.js";
+import { showTelegramNoticeModalIfFirstVisit } from "./telegramNoticeModal.js";
 import { createAutoSwapExecutionAdapter } from "./signalAutoExecution.js";
 import { initDeskTradingKeyFromEnv } from "./sessionTradingKey.js";
 import { setSignalAutoSolInputToEnvDefaults } from "./signalTradeAmount.js";
@@ -426,6 +427,7 @@ async function mount(): Promise<void> {
       <footer class="stage8-footer" role="note">${STAGE8_EDUCATIONAL_FOOTER}</footer>
   `;
 
+  showTelegramNoticeModalIfFirstVisit();
   runFirstVisitIntro();
 
   /** 0-based; page 0 = newest 15. Clamped in {@link renderPositionsTableBody}. */
