@@ -698,6 +698,20 @@ html.first-visit-intro .orbit-node--ml .orbit-node__bubble {
   min-width: 0;
 }
 
+.desk-wallet-banner {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(99, 140, 255, 0.18);
+  background: rgba(8, 11, 22, 0.55);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.45;
+  letter-spacing: -0.02em;
+  color: var(--text-muted);
+  word-break: break-all;
+}
+
 .app-brand {
   display: flex;
   align-items: center;

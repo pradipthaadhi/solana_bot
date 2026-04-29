@@ -366,6 +366,11 @@ export default defineConfig(({ mode }) => {
   const fileEnv = loadEnv(mode, chartRoot, "");
   applyChartWebDns(fileEnv);
 
+  /** PM2 / shell must win over `apps/chart-web/.env` so per-instance secrets from `deploy/chart-web-pm2-env/*.env` apply. */
+  const deskPrivateKeyFromShell = process.env.VITE_DESK_PRIVATE_KEY;
+  const viteDeskPrivateKey =
+    typeof deskPrivateKeyFromShell === "string" ? deskPrivateKeyFromShell : (fileEnv.VITE_DESK_PRIVATE_KEY ?? "");
+
   const jupiterTargetRaw =
     fileEnv.JUPITER_API_PROXY_TARGET?.trim() ||
     process.env.JUPITER_API_PROXY_TARGET?.trim() ||
@@ -379,6 +384,9 @@ export default defineConfig(({ mode }) => {
   const hmrPublic = chartWebHmrConfig(fileEnv);
 
   return {
+    define: {
+      "import.meta.env.VITE_DESK_PRIVATE_KEY": JSON.stringify(viteDeskPrivateKey),
+    },
     plugins: [jupiterDevProxyPlugin(jupiterTargetRaw, jupiterSwapApiKey), positionsFileApi()],
     resolve: {
       alias: {

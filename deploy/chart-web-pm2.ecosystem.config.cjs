@@ -8,6 +8,9 @@
  *   Edit each chart-web-{n}.env with its desk secret key (never commit *.env).
  *   npm run chart:pm2:start
  *
+ * If you change chart-web-*.env, reload env into PM2: `pm2 restart chart-web-1 chart-web-2 … --update-env`
+ * (or delete + start again). Vite reads VITE_* only when the dev process starts.
+ *
  * Shared RPC/Jupiter settings usually stay in apps/chart-web/.env — PM2 vars override where duplicated.
  *
  * Each chart-web-*.env may include CHART_WEB_PORT (for visibility); PM2 always sets the real listen port last.

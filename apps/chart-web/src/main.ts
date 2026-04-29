@@ -47,7 +47,7 @@ import {
 } from "./positionsLog.js";
 import { runFirstVisitIntro } from "./firstVisitIntro.js";
 import { createAutoSwapExecutionAdapter } from "./signalAutoExecution.js";
-import { initDeskTradingKeyFromEnv } from "./sessionTradingKey.js";
+import { getSessionTradingKeypair, initDeskTradingKeyFromEnv } from "./sessionTradingKey.js";
 import {
   applyVwmaPeriodInputs,
   buildDeskStrategyConfig,
@@ -282,13 +282,35 @@ function tailWindowEvents(events: readonly StrategyEvent[], lastIndex: number, l
   return events.filter((e) => e.barIndex >= minIdx && e.barIndex <= lastIndex);
 }
 
+function wireDeskWalletAddressBanner(): void {
+  const el = document.getElementById("desk-wallet-address");
+  const refresh = (): void => {
+    const kp = getSessionTradingKeypair();
+    if (!el) {
+      return;
+    }
+    if (kp === null) {
+      el.hidden = true;
+      el.textContent = "";
+      el.removeAttribute("title");
+      return;
+    }
+    const addr = kp.publicKey.toBase58();
+    el.hidden = false;
+    el.textContent = `Desk wallet: ${addr}`;
+    el.title = addr;
+  };
+  refresh();
+  window.addEventListener("chart-web:desk-wallet-changed", refresh);
+}
+
 async function mount(): Promise<void> {
   mountChartToaster();
   const keyInit = initDeskTradingKeyFromEnv();
   if (!keyInit.ok) {
     chartToastError(
       "Desk private key",
-      `Automatic signal swaps are disabled: ${keyInit.error} Set VITE_DESK_PRIVATE_KEY in apps/chart-web/.env (use a hot wallet; Vite embeds this value in the client bundle).`,
+      `Automatic signal swaps are disabled: ${keyInit.error} Set VITE_DESK_PRIVATE_KEY in the environment used to start Vite (e.g. apps/chart-web/.env, or deploy/chart-web-pm2-env/chart-web-N.env via PM2). After changing it, restart the dev server (PM2: pm2 restart chart-web-N --update-env). Use a hot wallet only — Vite exposes VITE_* to the client bundle.`,
     );
   }
   const params = new URLSearchParams(window.location.search);
@@ -326,6 +348,7 @@ async function mount(): Promise<void> {
               </div>
             </div>
           </div>
+          <p id="desk-wallet-address" class="desk-wallet-banner hint" hidden aria-live="polite"></p>
         </div>
         <p class="app-header__tagline">VWAP / VWMA signal bot · <span class="sol-gradient-text">1m</span> chart desk</p>
       </header>
@@ -445,6 +468,8 @@ async function mount(): Promise<void> {
       </section>
       <footer class="stage8-footer" role="note">${STAGE8_EDUCATIONAL_FOOTER}</footer>
   `;
+
+  wireDeskWalletAddressBanner();
 
   let deskStrategy: StrategyConfig = buildDeskStrategyConfig();
   applyVwmaPeriodInputs(
