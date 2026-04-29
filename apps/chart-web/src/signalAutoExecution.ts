@@ -2,7 +2,12 @@ import type { ExecutionAdapter, ExecutionSignalPayload } from "@bot/agent/execut
 import { createDedupingExecutionAdapter } from "@bot/agent/executionAdapter.js";
 import { createKeypairSigner } from "@bot/execution/keypairSigner.js";
 import { executeJupiterSwap } from "@bot/execution/swapExecutor.js";
-import { NATIVE_SOL_MINT } from "@bot/execution/types.js";
+import {
+  assertSplPartnerMintForSolPairs,
+  solPairSignalBuyQuote,
+  solPairSignalSellExactInTokenQuote,
+  solPairSignalSellExactSolOutQuote,
+} from "@bot/execution/solPairSwapQuotes.js";
 import { Connection } from "@solana/web3.js";
 import { appendPosition, type PositionSignalRow } from "./positionsLog.js";
 import { readDeskEnv } from "./chartWebEnv.js";
@@ -93,6 +98,16 @@ function innerAutoAdapter(pairLabel: string, poolAddress: string, onPersisted: (
           "No token mint: load the pool (Gecko should supply base/quote, including x/SOL) or set VITE_TOKEN_MINT in .env.",
       };
     }
+    try {
+      assertSplPartnerMintForSolPairs(tokenMint);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return {
+        ...row,
+        txStatus: "skipped",
+        txDetail: `Invalid pool swap mint (${msg}). Expected the pool’s non-SOL SPL mint (e.g. USDC for SOL/USDC).`,
+      };
+    }
 
     const am = getSignalAutoTradeLamports();
     if (!am.ok) {
@@ -117,12 +132,7 @@ function innerAutoAdapter(pairLabel: string, poolAddress: string, onPersisted: (
         const res = await executeJupiterSwap({
           connection: conn,
           userPublicKeyBase58: kp.publicKey.toBase58(),
-          quoteParams: {
-            inputMint: NATIVE_SOL_MINT,
-            outputMint: tokenMint,
-            amount: buyLamports,
-            slippageBps: deskEnv.signalSlippageBps,
-          },
+          quoteParams: solPairSignalBuyQuote(tokenMint, buyLamports, deskEnv.signalSlippageBps),
           rails,
           signTransaction,
           simulateOnly: false,
@@ -172,13 +182,7 @@ function innerAutoAdapter(pairLabel: string, poolAddress: string, onPersisted: (
         return okRow(
           await executeJupiterSwap({
             ...swapBase,
-            quoteParams: {
-              inputMint: tokenMint,
-              outputMint: NATIVE_SOL_MINT,
-              amount: sellLamports,
-              slippageBps: deskEnv.signalSlippageBps,
-              swapMode: "ExactOut",
-            },
+            quoteParams: solPairSignalSellExactSolOutQuote(tokenMint, sellLamports, deskEnv.signalSlippageBps),
             preflightSplBalanceRaw: splBalance,
           }),
         );
@@ -189,12 +193,7 @@ function innerAutoAdapter(pairLabel: string, poolAddress: string, onPersisted: (
         }
         const res = await executeJupiterSwap({
           ...swapBase,
-          quoteParams: {
-            inputMint: tokenMint,
-            outputMint: NATIVE_SOL_MINT,
-            amount: maxTokenIn,
-            slippageBps: deskEnv.signalSlippageBps,
-          },
+          quoteParams: solPairSignalSellExactInTokenQuote(tokenMint, maxTokenIn, deskEnv.signalSlippageBps),
         });
         return okRow(
           res,

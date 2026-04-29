@@ -5,7 +5,8 @@
  */
 
 /** Short copy for chart-web footers (plain text; keep in sync with user-visible disclaimers). */
-export const STAGE8_EDUCATIONAL_FOOTER = ''
+export const STAGE8_EDUCATIONAL_FOOTER =
+  "Educational POC only — not trading, legal, or tax advice. Automated crypto execution carries risk of loss; verify venues, custody, and jurisdiction before live use.";
 /**
  * Market and model risk themes (§8.1). Each item is an operator-facing reminder, not a forecast.
  */

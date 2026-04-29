@@ -1,12 +1,16 @@
 /**
- * Stage 5 — bridge FSM execution hooks → Jupiter legs (BUY = SOL→token, SELL = token→SOL).
+ * Stage 5 — bridge FSM execution hooks → Jupiter legs for **SOL / SPL** pools:
+ * ENTRY = SOL → partner mint (ExactIn lamports); EXIT = partner mint → SOL (ExactIn raw partner units for headless).
  */
 
 import type { Connection } from "@solana/web3.js";
 import type { ExecutionAdapter, ExecutionSignalPayload } from "../agent/executionAdapter.js";
 import { executeJupiterSwap, type ExecuteJupiterSwapResult } from "./swapExecutor.js";
+import {
+  solPairSignalBuyQuote,
+  solPairSignalSellExactInTokenQuote,
+} from "./solPairSwapQuotes.js";
 import type { JupiterQuoteParams, SafetyRails, SignVersionedTransaction } from "./types.js";
-import { NATIVE_SOL_MINT } from "./types.js";
 
 export interface JupiterSignalExecutionAdapterConfig {
   connection: Connection;
@@ -39,12 +43,11 @@ export function createJupiterSignalExecutionAdapter(cfg: JupiterSignalExecutionA
   };
   return {
     async onSignalEntry(_p: ExecutionSignalPayload) {
-      const quoteParams: JupiterQuoteParams = {
-        inputMint: NATIVE_SOL_MINT,
-        outputMint: cfg.targetMint,
-        amount: cfg.buySpendLamports,
-        slippageBps: cfg.slippageBps,
-      };
+      const quoteParams: JupiterQuoteParams = solPairSignalBuyQuote(
+        cfg.targetMint,
+        cfg.buySpendLamports,
+        cfg.slippageBps,
+      );
       const result = await executeJupiterSwap({
         ...execOpts,
         quoteParams,
@@ -52,12 +55,11 @@ export function createJupiterSignalExecutionAdapter(cfg: JupiterSignalExecutionA
       await Promise.resolve(cfg.onSwapComplete?.(result, "entry"));
     },
     async onSignalExit(_p: ExecutionSignalPayload) {
-      const quoteParams: JupiterQuoteParams = {
-        inputMint: cfg.targetMint,
-        outputMint: NATIVE_SOL_MINT,
-        amount: cfg.sellTokenRaw,
-        slippageBps: cfg.slippageBps,
-      };
+      const quoteParams: JupiterQuoteParams = solPairSignalSellExactInTokenQuote(
+        cfg.targetMint,
+        cfg.sellTokenRaw,
+        cfg.slippageBps,
+      );
       const result = await executeJupiterSwap({
         ...execOpts,
         quoteParams,

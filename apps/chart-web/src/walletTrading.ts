@@ -6,7 +6,11 @@
 import { Connection, Keypair, PublicKey, VersionedTransaction } from "@solana/web3.js";
 import { createKeypairSigner } from "@bot/execution/keypairSigner.js";
 import { executeJupiterSwap } from "@bot/execution/swapExecutor.js";
-import { NATIVE_SOL_MINT } from "@bot/execution/types.js";
+import {
+  describeSolPairPartnerShort,
+  solPairSignalBuyQuote,
+  solPairSignalSellExactSolOutQuote,
+} from "@bot/execution/solPairSwapQuotes.js";
 import {
   chartToastError,
   chartToastInfo,
@@ -19,6 +23,7 @@ import { readDeskEnv } from "./chartWebEnv.js";
 import { resolveJupiterApiBaseUrl } from "./jupiterApiBaseUrl.js";
 import { parseSecretKeyInput } from "./secretKeyParse.js";
 import { readWalletSplTokenBalanceRaw } from "./splTokenBalance.js";
+import { getSessionPoolSwapTokenMint } from "./sessionPoolSwapMint.js";
 import { getSessionTradingKeypair, setSessionTradingKeypair } from "./sessionTradingKey.js";
 
 type PhantomLike = {
@@ -233,10 +238,11 @@ export function mountWalletTrading(root: HTMLElement): void {
 
   const inpMint = document.createElement("input");
   inpMint.type = "text";
-  inpMint.value = env.tokenMint;
+  inpMint.id = "wallet-token-mint";
+  inpMint.value = getSessionPoolSwapTokenMint(env.tokenMint).trim();
   inpMint.spellcheck = false;
   inpMint.autocomplete = "off";
-  mkField("TOKEN_MINT (buy destination / sell source)", inpMint);
+  mkField("SPL mint (pool non-SOL leg — synced after Load)", inpMint);
 
   const inpBuyLamports = document.createElement("input");
   inpBuyLamports.type = "number";
@@ -320,6 +326,29 @@ export function mountWalletTrading(root: HTMLElement): void {
   const btnSell = el(rowBtns, "button", "btn-trade btn-trade--sell") as HTMLButtonElement;
   btnSell.type = "button";
   btnSell.textContent = "Sell token → SOL";
+
+  const refreshTradeButtonLabels = (): void => {
+    const mint = inpMint.value.trim();
+    if (mint.length === 0) {
+      btnBuy.textContent = "Buy SOL → token";
+      btnSell.textContent = "Sell token → SOL";
+      return;
+    }
+    const lab = describeSolPairPartnerShort(mint);
+    btnBuy.textContent = `Buy SOL → ${lab}`;
+    btnSell.textContent = `Sell ${lab} → SOL`;
+  };
+
+  const syncMintFromLoadedPool = (): void => {
+    inpMint.value = getSessionPoolSwapTokenMint(env.tokenMint).trim();
+    refreshTradeButtonLabels();
+  };
+
+  syncMintFromLoadedPool();
+  inpMint.addEventListener("input", refreshTradeButtonLabels);
+  inpMint.addEventListener("change", refreshTradeButtonLabels);
+  window.addEventListener("chart-web:session-pool-swap-mint", syncMintFromLoadedPool);
+  refreshTradeButtonLabels();
 
   let provider: PhantomLike | null = null;
   let pubkey: PublicKey | null = null;
@@ -580,19 +609,8 @@ export function mountWalletTrading(root: HTMLElement): void {
 
     const quoteParams =
       kind === "buy"
-        ? {
-            inputMint: NATIVE_SOL_MINT,
-            outputMint: token,
-            amount: buyLamports!,
-            slippageBps: slip,
-          }
-        : {
-            inputMint: token,
-            outputMint: NATIVE_SOL_MINT,
-            amount: sellTargetSolLamports!,
-            slippageBps: slip,
-            swapMode: "ExactOut" as const,
-          };
+        ? solPairSignalBuyQuote(token, buyLamports!, slip)
+        : solPairSignalSellExactSolOutQuote(token, sellTargetSolLamports!, slip);
 
     const signerPk = kind === "buy" ? buyKeypair!.publicKey : pubkey!;
     const signTransaction =

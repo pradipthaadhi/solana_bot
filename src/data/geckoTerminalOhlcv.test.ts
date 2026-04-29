@@ -92,6 +92,17 @@ describe("geckoTerminalOhlcv", () => {
       }),
     ).toBeNull();
   });
+
+  it("resolves USDC mint when WSOL is base", () => {
+    const usdc = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+    const meta = {
+      baseTokenAddress: WSOL_MINT,
+      quoteTokenAddress: usdc,
+      baseSymbol: "SOL",
+      quoteSymbol: "USDC",
+    };
+    expect(resolveAltTokenMintForSolPool(meta)).toBe(usdc);
+  });
 });
 
 describe("mergeTailRefresh / prependOlderOhlcv", () => {

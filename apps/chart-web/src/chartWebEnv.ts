@@ -30,8 +30,8 @@ export function readDeskEnv(): DeskEnv {
   const modeRaw = (import.meta.env.VITE_MODE ?? "paper").trim().toLowerCase();
   return {
     rpcUrl: (import.meta.env.VITE_RPC_URL ?? "https://api.mainnet-beta.solana.com").trim(),
-    // x/SOL desk: set to the x_token mint (e.g. USELESS), not USDC, so BUY spends SOL for x and SELL returns SOL from x.
-    tokenMint: (import.meta.env.VITE_TOKEN_MINT ?? "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v").trim(),
+    // Optional fallback SPL mint when Gecko meta is missing; normally resolved from the loaded SOL pair pool (e.g. USDC for SOL/USDC).
+    tokenMint: (import.meta.env.VITE_TOKEN_MINT ?? "").trim(),
     maxInputRaw: BigInt(import.meta.env.VITE_SOL_BOT_MAX_INPUT_RAW ?? "5000000"),
     mode: parseMode(modeRaw),
     killSwitch: import.meta.env.VITE_SOL_BOT_KILL_SWITCH === "1",
