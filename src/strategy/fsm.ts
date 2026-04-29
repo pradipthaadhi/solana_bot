@@ -33,6 +33,7 @@ function sliceFromPrev(curr: BarIndicators, prev: BarIndicators): CrossSeriesSli
 }
 
 function longExitEventIfAny(
+  config: StrategyConfig,
   prevInd: BarIndicators | undefined,
   ind: BarIndicators,
   index: number,
@@ -44,10 +45,11 @@ function longExitEventIfAny(
   if (!bear9_18(x)) {
     return undefined;
   }
+  const { mid, slow } = config.vwmaPeriods;
   return {
     kind: "SIGNAL_EXIT",
     barIndex: index,
-    reason: "bear9_18: VWMA(9) crossed below VWMA(18) on bar close",
+    reason: `bear${mid}_${slow}: VWMA(${mid}) crossed below VWMA(${slow}) on bar close`,
   };
 }
 
@@ -122,7 +124,7 @@ export function advanceFsm(input: FsmStepInput, ctx: FsmAdvanceContext): { state
   if (bar.volume === 0 && config.volumeZero === "SKIP_SIGNALS") {
     // Still allow protective exit while LONG; skip only new entries/arming on zero-volume bars.
     if (state.phase === "LONG") {
-      const exitEv = longExitEventIfAny(prevInd, ind, index);
+      const exitEv = longExitEventIfAny(config, prevInd, ind, index);
       if (exitEv !== undefined) {
         events.push(exitEv);
         return { state: { phase: "FLAT" }, events };
@@ -136,7 +138,7 @@ export function advanceFsm(input: FsmStepInput, ctx: FsmAdvanceContext): { state
   }
 
   if (state.phase === "LONG") {
-    const exitEv = longExitEventIfAny(prevInd, ind, index);
+    const exitEv = longExitEventIfAny(config, prevInd, ind, index);
     if (exitEv !== undefined) {
       events.push(exitEv);
       return { state: { phase: "FLAT" }, events };
@@ -149,22 +151,24 @@ export function advanceFsm(input: FsmStepInput, ctx: FsmAdvanceContext): { state
     if (prevInd !== undefined) {
       const x = sliceFromPrev(ind, prevInd);
       if (config.invalidateArmedOnBearish3_9 && bear3_9(x)) {
+        const { fast, mid } = config.vwmaPeriods;
         events.push({
           kind: "INVALIDATED",
           barIndex: index,
-          reason: "bear3_9 while ARMED: VWMA(3) crossed back below VWMA(9) before entry confirmation",
+          reason: `bear${fast}_${mid} while ARMED: VWMA(${fast}) crossed back below VWMA(${mid}) before entry confirmation`,
         });
         return { state: { phase: "FLAT" }, events };
       }
     }
     if (confirmationMet(config, crossIndex, index, ctx.bars, ctx.vwaps)) {
+      const { fast, mid } = config.vwmaPeriods;
       events.push({
         kind: "SIGNAL_ENTRY",
         barIndex: index,
         reason:
           config.entryConfirm === "TWO_GREEN_ABOVE_VWAP"
-            ? "Two consecutive bullish closes above VWAP after bullish 3/9 cross below VWAP"
-            : "First close strictly above VWAP after bullish 3/9 cross below VWAP",
+            ? `Two consecutive bullish closes above VWAP after bullish ${fast}/${mid} cross below VWAP`
+            : `First close strictly above VWAP after bullish ${fast}/${mid} cross below VWAP`,
       });
       return { state: { phase: "LONG", entryIndex: index }, events };
     }
@@ -177,10 +181,11 @@ export function advanceFsm(input: FsmStepInput, ctx: FsmAdvanceContext): { state
   }
   const x = sliceFromPrev(ind, prevInd);
   if (bull3_9(x) && belowVwapOnCross(config, bar, ind.vwap)) {
+    const { fast, mid } = config.vwmaPeriods;
     events.push({
       kind: "SIGNAL_ARMED",
       barIndex: index,
-      reason: "bull3_9 on close while below VWAP (per configured rule on cross bar)",
+      reason: `bull${fast}_${mid} on close while below VWAP (per configured rule on cross bar)`,
     });
     return { state: { phase: "ARMED", crossIndex: index }, events };
   }

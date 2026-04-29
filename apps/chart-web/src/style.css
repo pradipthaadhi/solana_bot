@@ -1346,6 +1346,83 @@ button.btn-ghost-pill:not(:disabled):hover {
   font-size: 0.92em;
 }
 
+.vwma-periods-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 12px;
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border: 1px solid rgba(153, 69, 255, 0.18);
+  border-radius: var(--radius-md);
+  background: rgba(12, 14, 22, 0.65);
+}
+
+.vwma-periods-label {
+  flex: 1 1 100%;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.vwma-period-field {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.vwma-period-field__k {
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+.vwma-period-input {
+  width: 4.25rem;
+  padding: 8px 10px;
+  font-size: 15px;
+  font-family: var(--font-mono);
+  color: #e8eaed;
+  background: rgba(5, 7, 12, 0.9);
+  border: 1px solid rgba(120, 132, 160, 0.35);
+  border-radius: 10px;
+}
+
+.vwma-period-input:focus {
+  outline: none;
+  border-color: rgba(153, 69, 255, 0.45);
+  box-shadow: 0 0 0 1px rgba(153, 69, 255, 0.18);
+}
+
+.btn-vwma-apply {
+  padding: 8px 16px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(91, 140, 255, 0.45);
+  background: linear-gradient(145deg, rgba(91, 140, 255, 0.25), rgba(153, 69, 255, 0.22));
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: var(--font-sans);
+  transition:
+    transform 0.15s var(--ease-out),
+    border-color 0.15s;
+}
+
+.btn-vwma-apply:hover {
+  transform: translateY(-1px);
+  border-color: rgba(20, 241, 149, 0.35);
+}
+
+.vwma-periods-hint {
+  flex: 1 1 220px;
+  margin: 0;
+  font-size: 12px;
+}
+
 .crosshair-hud {
   min-height: 1.35em;
   margin: 4px 0 12px;

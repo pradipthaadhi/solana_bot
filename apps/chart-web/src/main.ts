@@ -25,7 +25,7 @@ import {
 import type { Ohlcv } from "@bot/strategy/candleSemantics.js";
 import type { BarIndicators } from "@bot/strategy/barIndicators.js";
 import { STAGE8_EDUCATIONAL_FOOTER } from "@bot/scope/stage8.js";
-import { DEFAULT_STRATEGY_CONFIG } from "@bot/strategy/strategyConfig.js";
+import { type StrategyConfig } from "@bot/strategy/strategyConfig.js";
 import type { StrategyEvent } from "@bot/strategy/types.js";
 import {
   chartToastBuySignalDone,
@@ -49,6 +49,12 @@ import { runFirstVisitIntro } from "./firstVisitIntro.js";
 import { showTelegramNoticeModalIfFirstVisit } from "./telegramNoticeModal.js";
 import { createAutoSwapExecutionAdapter } from "./signalAutoExecution.js";
 import { initDeskTradingKeyFromEnv } from "./sessionTradingKey.js";
+import {
+  applyVwmaPeriodInputs,
+  buildDeskStrategyConfig,
+  parseVwmaPeriodInputs,
+  saveVwmaPeriods,
+} from "./deskVwmaConfig.js";
 import { setSignalAutoSolInputToEnvDefaults } from "./signalTradeAmount.js";
 import { setSessionPoolSwapTokenMint } from "./sessionPoolSwapMint.js";
 import { clearInMemoryOpenPositions, rehydrateOpenPositionFromLog } from "./sessionTradePairing.js";
@@ -352,9 +358,9 @@ async function mount(): Promise<void> {
           </div>
           <div class="metrics">
             <div class="metric"><div class="k">VWAP (UTC DAY)</div><div class="v" id="m-vwap">—</div></div>
-            <div class="metric"><div class="k">VWMA (3)</div><div class="v" id="m-3">—</div></div>
-            <div class="metric"><div class="k">VWMA (9)</div><div class="v" id="m-9">—</div></div>
-            <div class="metric"><div class="k">VWMA (18)</div><div class="v" id="m-18">—</div></div>
+            <div class="metric"><div class="k" id="metric-label-vwma-fast">VWMA (3)</div><div class="v" id="m-3">—</div></div>
+            <div class="metric"><div class="k" id="metric-label-vwma-mid">VWMA (9)</div><div class="v" id="m-9">—</div></div>
+            <div class="metric"><div class="k" id="metric-label-vwma-slow">VWMA (18)</div><div class="v" id="m-18">—</div></div>
           </div>
           <div class="signal-auto-sol-row" role="group" aria-label="Auto-signal swap size in SOL">
             <label class="signal-auto-sol-label" for="signal-auto-sol-amount">Auto-signal size (SOL)</label>
@@ -367,6 +373,20 @@ async function mount(): Promise<void> {
               spellcheck="false"
             />
             <p class="hint signal-auto-sol-hint">BUY: SOL spent. SELL: SOL received. Cleared = use <code class="env-code">.env</code> defaults.</p>
+          </div>
+          <div class="vwma-periods-row" role="group" aria-label="VWMA window lengths for strategy">
+            <span class="vwma-periods-label">VWMA periods</span>
+            <label class="vwma-period-field" for="vwma-fast"><span class="vwma-period-field__k">Fast</span>
+              <input id="vwma-fast" class="vwma-period-input" type="number" min="1" max="500" step="1" required />
+            </label>
+            <label class="vwma-period-field" for="vwma-mid"><span class="vwma-period-field__k">Mid</span>
+              <input id="vwma-mid" class="vwma-period-input" type="number" min="1" max="500" step="1" required />
+            </label>
+            <label class="vwma-period-field" for="vwma-slow"><span class="vwma-period-field__k">Slow</span>
+              <input id="vwma-slow" class="vwma-period-input" type="number" min="1" max="500" step="1" required />
+            </label>
+            <button type="button" id="btn-vwma-apply" class="btn-vwma-apply">Apply indicators</button>
+            <p class="hint vwma-periods-hint">Defaults 3 / 9 / 18. Require fast &lt; mid &lt; slow. Stored in this browser.</p>
           </div>
           <div id="crosshair-hud" class="crosshair-hud" aria-live="polite"></div>
           <div id="banner" style="display:none" class="banner"></div>
@@ -426,6 +446,13 @@ async function mount(): Promise<void> {
       </section>
       <footer class="stage8-footer" role="note">${STAGE8_EDUCATIONAL_FOOTER}</footer>
   `;
+
+  let deskStrategy: StrategyConfig = buildDeskStrategyConfig();
+  applyVwmaPeriodInputs(
+    $("#vwma-fast") as HTMLInputElement,
+    $("#vwma-mid") as HTMLInputElement,
+    $("#vwma-slow") as HTMLInputElement,
+  );
 
   showTelegramNoticeModalIfFirstVisit();
   runFirstVisitIntro();
@@ -654,9 +681,28 @@ async function mount(): Promise<void> {
   vol.priceScale().applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
 
   const vwap = chart.addLineSeries({ color: "#e7e9ee", lineWidth: 2, title: "VWAP", priceFormat: deskPriceFormat5 });
-  const w3 = chart.addLineSeries({ color: "#2962ff", lineWidth: 1, title: "VWMA 3", priceFormat: deskPriceFormat5 });
-  const w9 = chart.addLineSeries({ color: "#9945ff", lineWidth: 1, title: "VWMA 9", priceFormat: deskPriceFormat5 });
-  const w18 = chart.addLineSeries({ color: "#14f195", lineWidth: 1, title: "VWMA 18", priceFormat: deskPriceFormat5 });
+  const w3 = chart.addLineSeries({ color: "#2962ff", lineWidth: 1, title: "VWMA", priceFormat: deskPriceFormat5 });
+  const w9 = chart.addLineSeries({ color: "#9945ff", lineWidth: 1, title: "VWMA", priceFormat: deskPriceFormat5 });
+  const w18 = chart.addLineSeries({ color: "#14f195", lineWidth: 1, title: "VWMA", priceFormat: deskPriceFormat5 });
+
+  const syncDeskVwmaPresentation = (p: { fast: number; mid: number; slow: number }): void => {
+    const lf = document.getElementById("metric-label-vwma-fast");
+    const lm = document.getElementById("metric-label-vwma-mid");
+    const ls = document.getElementById("metric-label-vwma-slow");
+    if (lf) {
+      lf.textContent = `VWMA (${p.fast})`;
+    }
+    if (lm) {
+      lm.textContent = `VWMA (${p.mid})`;
+    }
+    if (ls) {
+      ls.textContent = `VWMA (${p.slow})`;
+    }
+    w3.applyOptions({ title: `VWMA ${p.fast}` });
+    w9.applyOptions({ title: `VWMA ${p.mid}` });
+    w18.applyOptions({ title: `VWMA ${p.slow}` });
+  };
+  syncDeskVwmaPresentation(deskStrategy.vwmaPeriods);
 
   const updateMetrics = (barIdx: number, indicators: readonly MetricsRow[]) => {
     const row = indicators[barIdx];
@@ -801,7 +847,7 @@ async function mount(): Promise<void> {
       }
       rehydrateOpenPositionFromLog(pool, loadLocalPositions());
       const agent = new SignalAgent({
-        strategy: DEFAULT_STRATEGY_CONFIG,
+        strategy: deskStrategy,
         execution: createAutoSwapExecutionAdapter(lastPairLabel, pool, autoSwapDedupe, renderPositionsTableBody),
         executionHooksScope: "tail_bar_only",
         executionTailBarLookback: EXEC_SIGNAL_TAIL_LOOKBACK,
@@ -925,11 +971,11 @@ async function mount(): Promise<void> {
       subpair.textContent =
         pool === DEFAULT_DEMO_POOL_ADDRESS
           ? "Demo pool — replace the address above for your pair."
-          : "Indicators match repo FSM inputs (VWAP UTC day + VWMA 3/9/18 on 1m closes).";
+          : `Indicators: VWAP UTC day · VWMA ${deskStrategy.vwmaPeriods.fast}/${deskStrategy.vwmaPeriods.mid}/${deskStrategy.vwmaPeriods.slow} on 1m closes (strategy-linked).`;
       chartPrimed = true;
 
       const agent = new SignalAgent({
-        strategy: DEFAULT_STRATEGY_CONFIG,
+        strategy: deskStrategy,
         execution: createAutoSwapExecutionAdapter(label, pool, autoSwapDedupe, renderPositionsTableBody),
         executionHooksScope: "tail_bar_only",
         executionTailBarLookback: EXEC_SIGNAL_TAIL_LOOKBACK,
@@ -999,6 +1045,33 @@ async function mount(): Promise<void> {
   }
 
   btnLoad.addEventListener("click", () => void tick({ silent: false }));
+
+  const btnVwmaApply = document.getElementById("btn-vwma-apply");
+  if (btnVwmaApply instanceof HTMLButtonElement) {
+    btnVwmaApply.addEventListener("click", () => {
+      const inf = document.getElementById("vwma-fast");
+      const inm = document.getElementById("vwma-mid");
+      const ins = document.getElementById("vwma-slow");
+      if (!(inf instanceof HTMLInputElement && inm instanceof HTMLInputElement && ins instanceof HTMLInputElement)) {
+        return;
+      }
+      const parsed = parseVwmaPeriodInputs(inf.value, inm.value, ins.value);
+      if (!parsed.ok) {
+        chartToastError("VWMA periods", parsed.error);
+        return;
+      }
+      saveVwmaPeriods(parsed.triple);
+      deskStrategy = buildDeskStrategyConfig();
+      syncDeskVwmaPresentation(deskStrategy.vwmaPeriods);
+      const { fast, mid, slow } = parsed.triple;
+      chartToastInfo(
+        "Indicators applied",
+        `VWMA periods set to ${fast} / ${mid} / ${slow}. Chart is refreshing with the new windows.`,
+      );
+      void tick({ silent: chartPrimed });
+    });
+  }
+
   btnNotify.addEventListener("click", () => {
     void requestNotifyPermission().then((p) => {
       const detail =

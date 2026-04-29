@@ -1,5 +1,5 @@
 /**
- * Stage 3.1 — aligned per-bar indicator row (VWAP + VWMA 3/9/18).
+ * Stage 3.1 — aligned per-bar indicator row (VWAP + triple VWMA per {@link StrategyConfig.vwmaPeriods}).
  */
 
 import type { BarIndicators } from "../strategy/barIndicators.js";
@@ -15,9 +15,10 @@ export function computeBarIndicators(bars: readonly Ohlcv[], strategy: StrategyC
   const closes = bars.map((b) => b.close);
   const volumes = bars.map((b) => b.volume);
   const vwap = computeVwapSeries(bars, strategy.vwap);
-  const vwma3 = computeVwmaSeries(closes, volumes, 3);
-  const vwma9 = computeVwmaSeries(closes, volumes, 9);
-  const vwma18 = computeVwmaSeries(closes, volumes, 18);
+  const { fast, mid, slow } = strategy.vwmaPeriods;
+  const vwma3 = computeVwmaSeries(closes, volumes, fast);
+  const vwma9 = computeVwmaSeries(closes, volumes, mid);
+  const vwma18 = computeVwmaSeries(closes, volumes, slow);
   const n = bars.length;
   const out: BarIndicators[] = [];
   for (let i = 0; i < n; i++) {

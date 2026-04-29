@@ -90,4 +90,19 @@ describe("computeBarIndicators (Stage 3.1)", () => {
     expect(ind[0]?.vwap).toBeCloseTo(10);
     expect(ind[1]?.vwap).toBeCloseTo(30);
   });
+
+  it("honors vwmaPeriods for the three VWMA series", () => {
+    const bars: Ohlcv[] = Array.from({ length: 30 }, (_, i) =>
+      ohlc(i + 1, i + 2, i, i + 1, 1, Date.UTC(2026, 3, 16, i, 0, 0)),
+    );
+    const strat: StrategyConfig = {
+      ...DEFAULT_STRATEGY_CONFIG,
+      vwmaPeriods: { fast: 5, mid: 12, slow: 24 },
+    };
+    const ind = computeBarIndicators(bars, strat);
+    expect(ind).toHaveLength(bars.length);
+    expect(Number.isFinite(ind[29]!.vwma3)).toBe(true);
+    expect(Number.isFinite(ind[29]!.vwma9)).toBe(true);
+    expect(Number.isFinite(ind[29]!.vwma18)).toBe(true);
+  });
 });
