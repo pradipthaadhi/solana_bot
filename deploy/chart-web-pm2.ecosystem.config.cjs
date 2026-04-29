@@ -1,14 +1,15 @@
 /**
- * PM2: five chart desks (`npm run dev` in apps/chart-web), ports 5713–5717.
+ * PM2: chart desks (`npm run dev` in apps/chart-web).
+ * Default: 10 instances → ports 5713–5722 (chart-web-1 … chart-web-10).
  * Optional env files set VITE_* overrides — mainly `VITE_DESK_PRIVATE_KEY` per wallet.
  *
  * Setup:
  *   cd repo && npm install && npm --prefix apps/chart-web install
- *   for i in 1 2 3 4 5; do cp deploy/chart-web-pm2-env/chart-web-$i.example.env deploy/chart-web-pm2-env/chart-web-$i.env; done
+ *   for i in $(seq 1 10); do cp deploy/chart-web-pm2-env/chart-web-$i.example.env deploy/chart-web-pm2-env/chart-web-$i.env; done
  *   Edit each chart-web-{n}.env with its desk secret key (never commit *.env).
  *   npm run chart:pm2:start
  *
- * If you change chart-web-*.env, reload env into PM2: `pm2 restart chart-web-1 chart-web-2 … --update-env`
+ * If you change chart-web-*.env, reload env into PM2: `pm2 restart chart-web-1 chart-web-2 … chart-web-10 --update-env`
  * (or delete + start again). Vite reads VITE_* only when the dev process starts.
  *
  * Shared RPC/Jupiter settings usually stay in apps/chart-web/.env — PM2 vars override where duplicated.
@@ -57,13 +58,18 @@ const repoRoot = path.resolve(deployDir, "..");
 const chartWeb = path.join(repoRoot, "apps", "chart-web");
 const envDir = path.join(deployDir, "chart-web-pm2-env");
 
-const instances = [
-  { name: "chart-web-1", port: 5713, envFile: "chart-web-1.env" },
-  { name: "chart-web-2", port: 5714, envFile: "chart-web-2.env" },
-  { name: "chart-web-3", port: 5715, envFile: "chart-web-3.env" },
-  { name: "chart-web-4", port: 5716, envFile: "chart-web-4.env" },
-  { name: "chart-web-5", port: 5717, envFile: "chart-web-5.env" },
-];
+/** Number of parallel chart-web PM2 apps (chart-web-1 … chart-web-N). Ports = BASE_PORT … BASE_PORT + N - 1. */
+const CHART_WEB_INSTANCE_COUNT = 10;
+const BASE_PORT = 5713;
+
+const instances = Array.from({ length: CHART_WEB_INSTANCE_COUNT }, (_, i) => {
+  const n = i + 1;
+  return {
+    name: `chart-web-${n}`,
+    port: BASE_PORT + i,
+    envFile: `chart-web-${n}.env`,
+  };
+});
 
 module.exports = {
   apps: instances.map(({ name, port, envFile }) => ({
