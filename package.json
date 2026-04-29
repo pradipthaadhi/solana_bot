@@ -14,7 +14,13 @@
     "chart:install": "npm --prefix apps/chart-web install",
     "chart:dev": "npm --prefix apps/chart-web run dev",
     "chart:dev:direct-net": "npm --prefix apps/chart-web run dev:direct-net",
-    "chart:build": "npm --prefix apps/chart-web run build"
+    "chart:build": "npm --prefix apps/chart-web run build",
+    "chart:pm2:start": "pm2 start deploy/chart-web-pm2.ecosystem.config.cjs",
+    "chart:pm2:stop": "pm2 stop chart-web-1 chart-web-2 chart-web-3 chart-web-4 chart-web-5",
+    "chart:pm2:restart": "pm2 restart chart-web-1 chart-web-2 chart-web-3 chart-web-4 chart-web-5",
+    "chart:pm2:delete": "pm2 delete chart-web-1 chart-web-2 chart-web-3 chart-web-4 chart-web-5",
+    "chart:pm2:logs": "pm2 logs chart-web --lines 120",
+    "chart:pm2:status": "pm2 status"
   },
   "engines": {
     "node": ">=20"

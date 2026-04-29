@@ -1,0 +1,3 @@
+# Instance secrets — copy from *.example.env and fill VITE_DESK_PRIVATE_KEY
+*.env
+!*.example.env
