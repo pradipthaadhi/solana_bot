@@ -46,7 +46,6 @@ import {
   syncPositionsFromServer,
 } from "./positionsLog.js";
 import { runFirstVisitIntro } from "./firstVisitIntro.js";
-import { showTelegramNoticeModalIfFirstVisit } from "./telegramNoticeModal.js";
 import { createAutoSwapExecutionAdapter } from "./signalAutoExecution.js";
 import { initDeskTradingKeyFromEnv } from "./sessionTradingKey.js";
 import {
@@ -454,7 +453,6 @@ async function mount(): Promise<void> {
     $("#vwma-slow") as HTMLInputElement,
   );
 
-  showTelegramNoticeModalIfFirstVisit();
   runFirstVisitIntro();
 
   /** 0-based; page 0 = newest 15. Clamped in {@link renderPositionsTableBody}. */
