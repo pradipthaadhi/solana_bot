@@ -423,9 +423,9 @@ async function mount(): Promise<void> {
         <div class="select-pa__inner glass-deck">
           <h2 class="select-pa-title">Select PA</h2>
           <p class="hint select-pa-hint">
-            Paste a Solana token mint (coin address). The desk asks Perplexity for the most plausible
-            <strong>GeckoTerminal pool id</strong> (main chart liquidity). Always verify the pool on GeckoTerminal —
-            models can hallucinate addresses.
+            Paste a Solana token mint (coin address). The desk lists up to <strong>five</strong> ranked chart pools from
+            <strong>DexScreener</strong> (then GeckoTerminal), with <strong>Perplexity</strong> as fallback when APIs have
+            no pairs yet. Tap a pool to select it, then use it in the chart — always verify on GeckoTerminal.
           </p>
           <div class="select-pa-row">
             <label class="select-pa-label" for="select-pa-mint">Token mint</label>
@@ -439,7 +439,10 @@ async function mount(): Promise<void> {
             />
             <button id="btn-select-pa-suggest" class="primary btn-pill-glow" type="button">Suggest pool</button>
           </div>
-          <pre id="select-pa-out" class="select-pa-out" aria-live="polite"></pre>
+          <div class="select-pa-results">
+            <pre id="select-pa-out" class="select-pa-out" aria-live="polite"></pre>
+            <ol id="select-pa-pool-list" class="select-pa-pool-list" hidden></ol>
+          </div>
           <div class="select-pa-actions">
             <button id="btn-select-pa-use" class="btn-ghost-pill" type="button" disabled>Use in chart</button>
             <a class="toolbar-link toolbar-link--caps" href="#desk-hero">Back to chart</a>
@@ -1101,17 +1104,21 @@ async function mount(): Promise<void> {
   const selectPaMint = document.getElementById("select-pa-mint");
   const btnSelectPaSuggest = document.getElementById("btn-select-pa-suggest");
   const selectPaOut = document.getElementById("select-pa-out");
+  const selectPaPoolList = document.getElementById("select-pa-pool-list");
   const btnSelectPaUse = document.getElementById("btn-select-pa-use");
   if (
     selectPaMint instanceof HTMLInputElement &&
     btnSelectPaSuggest instanceof HTMLButtonElement &&
     selectPaOut instanceof HTMLPreElement &&
+    selectPaPoolList instanceof HTMLOListElement &&
     btnSelectPaUse instanceof HTMLButtonElement
   ) {
     btnSelectPaSuggest.addEventListener("click", () => {
       void (async () => {
         const mint = selectPaMint.value.trim();
         selectPaOut.textContent = "";
+        selectPaPoolList.innerHTML = "";
+        selectPaPoolList.hidden = true;
         lastSuggestedPool = "";
         btnSelectPaUse.disabled = true;
         if (mint.length === 0) {
@@ -1126,31 +1133,116 @@ async function mount(): Promise<void> {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ mint }),
           });
+          type PoolRow = { rank: number; poolAddress: string; pairHint?: string; notes?: string };
           const data = (await res.json()) as {
             ok?: boolean;
+            pools?: PoolRow[];
             poolAddress?: string;
             pairHint?: string;
             notes?: string;
+            source?: string;
             error?: string;
             rawSnippet?: string;
           };
-          if (!data.ok || !data.poolAddress) {
+
+          let pools: PoolRow[] = Array.isArray(data.pools) ? data.pools : [];
+          if (data.ok === true && pools.length === 0 && data.poolAddress !== undefined && data.poolAddress.length > 0) {
+            pools = [
+              {
+                rank: 1,
+                poolAddress: data.poolAddress,
+                pairHint: data.pairHint,
+                notes: data.notes,
+              },
+            ];
+          }
+
+          if (!data.ok || pools.length === 0) {
+            selectPaPoolList.hidden = true;
+            const lines: string[] = [];
+            if (data.error !== undefined && data.error.length > 0) {
+              lines.push(data.error);
+            }
+            if (data.pairHint !== undefined && data.pairHint.length > 0) {
+              lines.push(`pairHint: ${data.pairHint}`);
+            }
+            if (data.notes !== undefined && data.notes.length > 0) {
+              lines.push(`notes: ${data.notes}`);
+            }
+            if (lines.length === 0) {
+              lines.push(data.error ?? `HTTP ${res.status}`);
+            }
             const extra =
               data.rawSnippet !== undefined && data.rawSnippet.length > 0
                 ? `\n\n--- raw ---\n${data.rawSnippet}`
                 : "";
-            selectPaOut.textContent = `${data.error ?? `HTTP ${res.status}`}${extra}`;
+            selectPaOut.textContent = `${lines.join("\n\n")}${extra}`;
             return;
           }
-          lastSuggestedPool = data.poolAddress;
-          btnSelectPaUse.disabled = false;
-          const lines = [
-            `poolAddress: ${data.poolAddress}`,
-            data.pairHint ? `pairHint: ${data.pairHint}` : "",
-            data.notes ? `notes: ${data.notes}` : "",
-          ].filter((s) => s.length > 0);
-          selectPaOut.textContent = lines.join("\n");
+
+          const srcLabel =
+            data.source === "dexscreener"
+              ? "DexScreener"
+              : data.source === "geckoterminal"
+                ? "GeckoTerminal"
+                : data.source === "perplexity"
+                  ? "Perplexity"
+                  : "API";
+          selectPaOut.textContent = `${srcLabel}: ${pools.length} ranked pool(s) (max 5). Tap a row to select — top rank is pre-selected.`;
+
+          selectPaPoolList.hidden = false;
+          selectPaPoolList.innerHTML = "";
+          const markSelected = (btn: HTMLButtonElement) => {
+            selectPaPoolList.querySelectorAll(".select-pa-pool-row").forEach((el) => {
+              el.classList.toggle("is-selected", el === btn);
+            });
+          };
+
+          for (const p of pools) {
+            const li = document.createElement("li");
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "select-pa-pool-row";
+            btn.dataset.pool = p.poolAddress;
+            const rankSpan = document.createElement("span");
+            rankSpan.className = "select-pa-pool-rank";
+            rankSpan.textContent = `#${p.rank}`;
+            const code = document.createElement("code");
+            code.className = "select-pa-pool-addr";
+            code.textContent = p.poolAddress;
+            btn.append(rankSpan, code);
+            const hint = p.pairHint?.trim() ?? "";
+            if (hint.length > 0) {
+              const pairEl = document.createElement("span");
+              pairEl.className = "select-pa-pool-pair";
+              pairEl.textContent = hint;
+              btn.appendChild(pairEl);
+            }
+            const noteStr = p.notes?.trim() ?? "";
+            if (noteStr.length > 0) {
+              const notesEl = document.createElement("span");
+              notesEl.className = "select-pa-pool-notes";
+              notesEl.textContent = noteStr;
+              btn.appendChild(notesEl);
+            }
+            btn.addEventListener("click", () => {
+              lastSuggestedPool = p.poolAddress;
+              btnSelectPaUse.disabled = false;
+              markSelected(btn);
+            });
+            li.appendChild(btn);
+            selectPaPoolList.appendChild(li);
+          }
+
+          const firstBtn = selectPaPoolList.querySelector<HTMLButtonElement>(".select-pa-pool-row");
+          if (firstBtn !== null) {
+            lastSuggestedPool = firstBtn.dataset.pool ?? pools[0].poolAddress;
+            btnSelectPaUse.disabled = false;
+            markSelected(firstBtn);
+          }
         } catch (e) {
+          selectPaPoolList.innerHTML = "";
+          selectPaPoolList.hidden = true;
           selectPaOut.textContent =
             e instanceof Error
               ? `${e.message}\n\nIs the chart served via Vite dev or preview? Static hosting has no /api/suggest-gecko-pool.`

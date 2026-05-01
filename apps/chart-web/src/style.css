@@ -1740,7 +1740,7 @@ button.btn-ghost-pill:not(:disabled):hover {
   box-shadow: 0 8px 28px rgba(255, 107, 122, 0.2);
 }
 
-/* —— Select PA (Perplexity → Gecko pool id hint) —— */
+/* —— Select PA (mint → ranked Gecko pool ids, DexScreener / Gecko / Perplexity) —— */
 .select-pa {
   margin-top: 28px;
 }
@@ -1815,7 +1815,7 @@ button.btn-ghost-pill:not(:disabled):hover {
 }
 
 .select-pa-out {
-  margin: 0 0 14px;
+  margin: 0 0 10px;
   padding: 12px 14px;
   min-height: 2.8em;
   white-space: pre-wrap;
@@ -1827,6 +1827,82 @@ button.btn-ghost-pill:not(:disabled):hover {
   border-radius: var(--radius-md);
   border: 1px solid var(--stroke);
   background: rgba(10, 12, 18, 0.72);
+}
+
+.select-pa-results {
+  margin-bottom: 14px;
+}
+
+.select-pa-pool-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.select-pa-pool-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 12px;
+  width: 100%;
+  margin: 0;
+  padding: 11px 13px;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--stroke);
+  background: rgba(10, 12, 18, 0.72);
+  transition:
+    border-color 0.18s var(--ease-out),
+    box-shadow 0.18s var(--ease-out),
+    background 0.18s var(--ease-out);
+}
+
+.select-pa-pool-row:hover {
+  border-color: rgba(120, 132, 160, 0.38);
+  background: rgba(14, 17, 26, 0.88);
+}
+
+.select-pa-pool-row.is-selected {
+  border-color: rgba(91, 140, 255, 0.55);
+  box-shadow: 0 0 0 2px var(--accent-dim);
+  background: rgba(14, 22, 40, 0.92);
+}
+
+.select-pa-pool-rank {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+}
+
+.select-pa-pool-addr {
+  flex: 1 1 200px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  word-break: break-all;
+  color: rgba(232, 236, 244, 0.96);
+}
+
+.select-pa-pool-pair {
+  flex: 0 1 auto;
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(200, 208, 224, 0.88);
+}
+
+.select-pa-pool-notes {
+  flex: 1 0 100%;
+  margin: 0;
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--text-muted);
 }
 
 .select-pa-actions {
