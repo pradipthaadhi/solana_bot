@@ -6,6 +6,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig, loadEnv, type Plugin } from "vite";
 
+import { perplexitySuggestPoolPlugin } from "./perplexitySuggestMiddleware.js";
+
 /** VMware / broken IPv6: prefer A records so `getaddrinfo` does not hang or fail on AAAA-only paths. */
 dns.setDefaultResultOrder("ipv4first");
 
@@ -398,6 +400,12 @@ export default defineConfig(({ mode }) => {
   const jupiterSwapApiKey =
     fileEnv.JUPITER_SWAP_API_KEY?.trim() ?? process.env.JUPITER_SWAP_API_KEY?.trim() ?? "";
 
+  /** Server-side only (Vite middleware); shell / PM2 overrides apps/chart-web/.env when both set. */
+  const perplexityApiKey =
+    process.env.PERPLEXITY_API_KEY?.trim() ?? fileEnv.PERPLEXITY_API_KEY?.trim() ?? "";
+  const perplexityModel =
+    process.env.PERPLEXITY_MODEL?.trim() ?? fileEnv.PERPLEXITY_MODEL?.trim() ?? "sonar";
+
   const devPort = chartWebDevPort(fileEnv);
   const allowedHosts = chartWebAllowedHosts(fileEnv);
   const hmrPublic = chartWebHmrConfig(fileEnv);
@@ -407,7 +415,11 @@ export default defineConfig(({ mode }) => {
       "import.meta.env.VITE_DESK_PRIVATE_KEY": JSON.stringify(viteDeskPrivateKey),
       "import.meta.env.VITE_SIGNAL_HISTORY_ID": JSON.stringify(viteSignalHistoryId),
     },
-    plugins: [jupiterDevProxyPlugin(jupiterTargetRaw, jupiterSwapApiKey), positionsFileApi(viteSignalHistoryId)],
+    plugins: [
+      jupiterDevProxyPlugin(jupiterTargetRaw, jupiterSwapApiKey),
+      perplexitySuggestPoolPlugin(perplexityApiKey, perplexityModel),
+      positionsFileApi(viteSignalHistoryId),
+    ],
     resolve: {
       alias: {
         "@bot": botSrc,

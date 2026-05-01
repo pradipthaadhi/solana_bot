@@ -334,6 +334,7 @@ async function mount(): Promise<void> {
             </div>
             <nav class="desk-nav" aria-label="Section shortcuts">
               <a class="desk-nav__link" href="#desk-hero">Chart</a>
+              <a class="desk-nav__link" href="#select-pa">Select PA</a>
               <a class="desk-nav__link" href="#signal-log">Signals</a>
             </nav>
           </div>
@@ -418,7 +419,34 @@ async function mount(): Promise<void> {
           </div>
         </div>
       </div>
-     
+      <section id="select-pa" class="select-pa">
+        <div class="select-pa__inner glass-deck">
+          <h2 class="select-pa-title">Select PA</h2>
+          <p class="hint select-pa-hint">
+            Paste a Solana token mint (coin address). The desk asks Perplexity for the most plausible
+            <strong>GeckoTerminal pool id</strong> (main chart liquidity). Always verify the pool on GeckoTerminal —
+            models can hallucinate addresses.
+          </p>
+          <div class="select-pa-row">
+            <label class="select-pa-label" for="select-pa-mint">Token mint</label>
+            <input
+              id="select-pa-mint"
+              class="select-pa-input"
+              type="text"
+              spellcheck="false"
+              autocomplete="off"
+              placeholder="e.g. EPjFWdd5… (base58 mint)"
+            />
+            <button id="btn-select-pa-suggest" class="primary btn-pill-glow" type="button">Suggest pool</button>
+          </div>
+          <pre id="select-pa-out" class="select-pa-out" aria-live="polite"></pre>
+          <div class="select-pa-actions">
+            <button id="btn-select-pa-use" class="btn-ghost-pill" type="button" disabled>Use in chart</button>
+            <a class="toolbar-link toolbar-link--caps" href="#desk-hero">Back to chart</a>
+          </div>
+        </div>
+      </section>
+
       <section id="signal-log" class="signal-log">
         <div class="signal-log-head">
           <h2 class="signal-log-title">Signal history</h2>
@@ -1068,6 +1096,80 @@ async function mount(): Promise<void> {
   }
 
   btnLoad.addEventListener("click", () => void tick({ silent: false }));
+
+  let lastSuggestedPool = "";
+  const selectPaMint = document.getElementById("select-pa-mint");
+  const btnSelectPaSuggest = document.getElementById("btn-select-pa-suggest");
+  const selectPaOut = document.getElementById("select-pa-out");
+  const btnSelectPaUse = document.getElementById("btn-select-pa-use");
+  if (
+    selectPaMint instanceof HTMLInputElement &&
+    btnSelectPaSuggest instanceof HTMLButtonElement &&
+    selectPaOut instanceof HTMLPreElement &&
+    btnSelectPaUse instanceof HTMLButtonElement
+  ) {
+    btnSelectPaSuggest.addEventListener("click", () => {
+      void (async () => {
+        const mint = selectPaMint.value.trim();
+        selectPaOut.textContent = "";
+        lastSuggestedPool = "";
+        btnSelectPaUse.disabled = true;
+        if (mint.length === 0) {
+          selectPaOut.textContent = "Enter a token mint address.";
+          return;
+        }
+        btnSelectPaSuggest.disabled = true;
+        selectPaOut.textContent = "Requesting suggestion…";
+        try {
+          const res = await fetch(`${window.location.origin}/api/suggest-gecko-pool`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ mint }),
+          });
+          const data = (await res.json()) as {
+            ok?: boolean;
+            poolAddress?: string;
+            pairHint?: string;
+            notes?: string;
+            error?: string;
+            rawSnippet?: string;
+          };
+          if (!data.ok || !data.poolAddress) {
+            const extra =
+              data.rawSnippet !== undefined && data.rawSnippet.length > 0
+                ? `\n\n--- raw ---\n${data.rawSnippet}`
+                : "";
+            selectPaOut.textContent = `${data.error ?? `HTTP ${res.status}`}${extra}`;
+            return;
+          }
+          lastSuggestedPool = data.poolAddress;
+          btnSelectPaUse.disabled = false;
+          const lines = [
+            `poolAddress: ${data.poolAddress}`,
+            data.pairHint ? `pairHint: ${data.pairHint}` : "",
+            data.notes ? `notes: ${data.notes}` : "",
+          ].filter((s) => s.length > 0);
+          selectPaOut.textContent = lines.join("\n");
+        } catch (e) {
+          selectPaOut.textContent =
+            e instanceof Error
+              ? `${e.message}\n\nIs the chart served via Vite dev or preview? Static hosting has no /api/suggest-gecko-pool.`
+              : String(e);
+        } finally {
+          btnSelectPaSuggest.disabled = false;
+        }
+      })();
+    });
+
+    btnSelectPaUse.addEventListener("click", () => {
+      if (lastSuggestedPool.length === 0) {
+        return;
+      }
+      poolInput.value = lastSuggestedPool;
+      void tick({ silent: false });
+      window.location.hash = "#desk-hero";
+    });
+  }
 
   const btnVwmaApply = document.getElementById("btn-vwma-apply");
   if (btnVwmaApply instanceof HTMLButtonElement) {
