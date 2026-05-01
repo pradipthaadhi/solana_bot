@@ -18,6 +18,11 @@ interface ImportMetaEnv {
    * Embedded in the client bundle by Vite — not for production secrets you must hide from users.
    */
   readonly VITE_DESK_PRIVATE_KEY?: string;
+  /**
+   * Dev-server listen port used as signal-history instance id (`positions-{id}.txt`, localStorage).
+   * Set via `CHART_WEB_PORT` when starting Vite (PM2 sets per chart-web-N).
+   */
+  readonly VITE_SIGNAL_HISTORY_ID?: string;
 }
 
 interface ImportMeta {

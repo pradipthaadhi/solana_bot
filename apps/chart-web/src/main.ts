@@ -424,10 +424,10 @@ async function mount(): Promise<void> {
           <h2 class="signal-log-title">Signal history</h2>
           <div class="signal-log-actions">
             <button id="btn-positions-refresh" type="button">Sync file</button>
-            <button id="btn-positions-export" type="button">Download positions.txt</button>
+            <button id="btn-positions-export" type="button">Download signal history (.txt)</button>
           </div>
         </div>
-        <p class="hint signal-log-hint">Newest first, <b>15 rows per page</b>. <b>Trade ID</b> is unique per BUY; the matching SELL reuses that id. <b>Tx</b> shows on-chain outcome (success / error / skipped). Per-row trash; header clears the full log. <code>npm run chart:dev</code> syncs to <code>positions.txt</code>; otherwise <b>Download</b> saves the list.</p>
+        <p class="hint signal-log-hint">Newest first, <b>15 rows per page</b>. <b>Trade ID</b> is unique per BUY; the matching SELL reuses that id. <b>Tx</b> shows on-chain outcome (success / error / skipped). Per-row trash; header clears the full log. <code>npm run chart:dev</code> syncs to <code>positions-&lt;port&gt;.txt</code> under <code>apps/chart-web/</code> (same port as <code>CHART_WEB_PORT</code>; one file per PM2 process); otherwise <b>Download</b> saves the list.</p>
         <div class="table-scroll">
           <table class="positions-table" aria-label="Historical BUY and SELL signals">
             <thead>

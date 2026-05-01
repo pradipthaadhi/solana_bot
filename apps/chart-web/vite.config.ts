@@ -222,9 +222,94 @@ function jupiterDevProxyPlugin(targetRaw: string, swapApiKey: string): Plugin {
   };
 }
 
-/** Dev-only: append/read `positions.txt` for BUY/SELL JSONL (static hosting has no server write). */
 /**
- * Dev server port (Vite). Default 5713 matches common VPS + Caddy reverse_proxy targets.
+ * PM2 sets `CHART_WEB_PORT` per process → unique signal history (`positions-{id}.txt`) must match the browser bundle.
+ */
+function resolveSignalHistoryId(fileEnv: Record<string, string>): string {
+  const raw = (process.env.CHART_WEB_PORT ?? fileEnv.CHART_WEB_PORT ?? "5713").trim();
+  return /^[0-9]+$/.test(raw) ? raw : "5713";
+}
+
+/** Dev-only: append/read `positions-{CHART_WEB_PORT}.txt` for BUY/SELL JSONL (one file per PM2 / dev port). */
+function positionsFileApi(signalHistoryId: string): Plugin {
+  const safeId = /^[0-9]+$/.test(signalHistoryId) ? signalHistoryId : "5713";
+  const positionsFile = path.join(chartRoot, `positions-${safeId}.txt`);
+  const legacyPositionsFile = path.join(chartRoot, "positions.txt");
+  const apiPath = `/api/positions/${safeId}`;
+
+  return {
+    name: `sol-bot-positions-file-${safeId}`,
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const pathname = (req.url ?? "").split("?")[0] ?? "";
+        if (pathname !== apiPath) {
+          next();
+          return;
+        }
+        if (req.method === "GET") {
+          try {
+            let body = "";
+            if (fs.existsSync(positionsFile)) {
+              body = fs.readFileSync(positionsFile, "utf8");
+            } else if (safeId === "5713" && fs.existsSync(legacyPositionsFile)) {
+              body = fs.readFileSync(legacyPositionsFile, "utf8");
+              fs.writeFileSync(positionsFile, body, "utf8");
+            }
+            res.statusCode = 200;
+            res.setHeader("Content-Type", "text/plain; charset=utf-8");
+            res.end(body);
+          } catch (e) {
+            res.statusCode = 500;
+            res.end(e instanceof Error ? e.message : String(e));
+          }
+          return;
+        }
+        if (req.method === "POST") {
+          const chunks: Buffer[] = [];
+          req.on("data", (c: Buffer) => {
+            chunks.push(c);
+          });
+          req.on("end", () => {
+            try {
+              const line = Buffer.concat(chunks).toString("utf8").trimEnd();
+              if (line.length > 0) {
+                fs.appendFileSync(positionsFile, `${line}\n`, "utf8");
+              }
+              res.statusCode = 204;
+              res.end();
+            } catch (e) {
+              res.statusCode = 500;
+              res.end(e instanceof Error ? e.message : String(e));
+            }
+          });
+          return;
+        }
+        if (req.method === "PUT") {
+          const chunks: Buffer[] = [];
+          req.on("data", (c: Buffer) => {
+            chunks.push(c);
+          });
+          req.on("end", () => {
+            try {
+              const body = Buffer.concat(chunks).toString("utf8");
+              fs.writeFileSync(positionsFile, body, "utf8");
+              res.statusCode = 204;
+              res.end();
+            } catch (e) {
+              res.statusCode = 500;
+              res.end(e instanceof Error ? e.message : String(e));
+            }
+          });
+          return;
+        }
+        res.statusCode = 405;
+        res.end();
+      });
+    },
+  };
+}
+
+/** Dev server port (Vite). Default 5713 matches common VPS + Caddy reverse_proxy targets.
  * Override with `CHART_WEB_PORT` in `apps/chart-web/.env` or the environment.
  */
 function chartWebDevPort(fileEnv: Record<string, string>): number {
@@ -294,74 +379,6 @@ function chartWebHmrConfig(
   }
 }
 
-function positionsFileApi(): Plugin {
-  const positionsFile = path.join(chartRoot, "positions.txt");
-  return {
-    name: "sol-bot-positions-file",
-    configureServer(server) {
-      server.middlewares.use((req, res, next) => {
-        const url = (req.url ?? "").split("?")[0] ?? "";
-        if (url !== "/api/positions") {
-          next();
-          return;
-        }
-        if (req.method === "GET") {
-          try {
-            const body = fs.existsSync(positionsFile) ? fs.readFileSync(positionsFile, "utf8") : "";
-            res.statusCode = 200;
-            res.setHeader("Content-Type", "text/plain; charset=utf-8");
-            res.end(body);
-          } catch (e) {
-            res.statusCode = 500;
-            res.end(e instanceof Error ? e.message : String(e));
-          }
-          return;
-        }
-        if (req.method === "POST") {
-          const chunks: Buffer[] = [];
-          req.on("data", (c: Buffer) => {
-            chunks.push(c);
-          });
-          req.on("end", () => {
-            try {
-              const line = Buffer.concat(chunks).toString("utf8").trimEnd();
-              if (line.length > 0) {
-                fs.appendFileSync(positionsFile, `${line}\n`, "utf8");
-              }
-              res.statusCode = 204;
-              res.end();
-            } catch (e) {
-              res.statusCode = 500;
-              res.end(e instanceof Error ? e.message : String(e));
-            }
-          });
-          return;
-        }
-        if (req.method === "PUT") {
-          const chunks: Buffer[] = [];
-          req.on("data", (c: Buffer) => {
-            chunks.push(c);
-          });
-          req.on("end", () => {
-            try {
-              const body = Buffer.concat(chunks).toString("utf8");
-              fs.writeFileSync(positionsFile, body, "utf8");
-              res.statusCode = 204;
-              res.end();
-            } catch (e) {
-              res.statusCode = 500;
-              res.end(e instanceof Error ? e.message : String(e));
-            }
-          });
-          return;
-        }
-        res.statusCode = 405;
-        res.end();
-      });
-    },
-  };
-}
-
 export default defineConfig(({ mode }) => {
   const fileEnv = loadEnv(mode, chartRoot, "");
   applyChartWebDns(fileEnv);
@@ -370,6 +387,8 @@ export default defineConfig(({ mode }) => {
   const deskPrivateKeyFromShell = process.env.VITE_DESK_PRIVATE_KEY;
   const viteDeskPrivateKey =
     typeof deskPrivateKeyFromShell === "string" ? deskPrivateKeyFromShell : (fileEnv.VITE_DESK_PRIVATE_KEY ?? "");
+
+  const viteSignalHistoryId = resolveSignalHistoryId(fileEnv);
 
   const jupiterTargetRaw =
     fileEnv.JUPITER_API_PROXY_TARGET?.trim() ||
@@ -386,8 +405,9 @@ export default defineConfig(({ mode }) => {
   return {
     define: {
       "import.meta.env.VITE_DESK_PRIVATE_KEY": JSON.stringify(viteDeskPrivateKey),
+      "import.meta.env.VITE_SIGNAL_HISTORY_ID": JSON.stringify(viteSignalHistoryId),
     },
-    plugins: [jupiterDevProxyPlugin(jupiterTargetRaw, jupiterSwapApiKey), positionsFileApi()],
+    plugins: [jupiterDevProxyPlugin(jupiterTargetRaw, jupiterSwapApiKey), positionsFileApi(viteSignalHistoryId)],
     resolve: {
       alias: {
         "@bot": botSrc,

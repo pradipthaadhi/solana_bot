@@ -1,0 +1,41 @@
+# Run tests and production builds on every push / PR (matches `npm run ci` locally).
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies (root)
+        run: npm ci
+
+      - name: Unit tests (Vitest)
+        run: npm test
+
+      - name: TypeScript build (root)
+        run: npm run build
+
+      - name: Install chart-web dependencies
+        run: npm ci --prefix apps/chart-web
+
+      - name: Build chart-web (Vite)
+        run: npm run chart:build

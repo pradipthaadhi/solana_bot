@@ -8,6 +8,7 @@
     "build": "tsc -p tsconfig.json",
     "config:print": "tsx src/cli/printBotEnv.ts",
     "test": "vitest run",
+    "ci": "npm test && npm run build && npm ci --prefix apps/chart-web && npm run chart:build",
     "stage7:gen-golden": "tsx scripts/gen-stage7-goldens.ts",
     "signal:jupiter": "tsx src/cli/runHeadlessSignalJupiter.ts",
     "test:watch": "vitest",

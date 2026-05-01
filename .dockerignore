@@ -12,3 +12,4 @@ coverage
 terminals
 .vscode
 apps/chart-web/positions.txt
+apps/chart-web/positions-*.txt

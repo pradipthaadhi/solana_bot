@@ -17,13 +17,14 @@ npm install
 ```bash
 npm test
 npm run build
+npm run ci             # Vitest + root `tsc` + `npm ci` in apps/chart-web + `vite build` (matches `.github/workflows/ci.yml`)
 npm run config:print   # Stage 6 — redacted env-derived config (requires devDependency tsx)
 npm run signal:jupiter # headless: Gecko OHLCV → signals → Jupiter (see docs/RUNBOOK_SIGNAL_EXEC.md)
 ```
 
 ## 1-minute chart + notifications (no trades)
 
-This starts a local Vite app: 1m candles from **GeckoTerminal**, overlays **VWAP (UTC day)** + **VWMA 3/9/18**, refreshes every **60s**, and fires **browser + on-page notifications** for strategy entry/exit on the **latest closed bar** only (no Phantom / no transactions). **BUY/SELL** rows are stored in **localStorage** and (in dev) appended to **`apps/chart-web/positions.txt`** as JSON Lines; the same page includes a **signal history** table with export to `positions.txt`.
+This starts a local Vite app: 1m candles from **GeckoTerminal**, overlays **VWAP (UTC day)** + **VWMA 3/9/18**, refreshes every **60s**, and fires **browser + on-page notifications** for strategy entry/exit on the **latest closed bar** only (no Phantom / no transactions). **BUY/SELL** rows are stored in **localStorage** and (in dev) appended to **`apps/chart-web/positions-<CHART_WEB_PORT>.txt`** as JSON Lines (one file per dev server port / PM2 instance); the same page includes a **signal history** table with export to `positions-<port>.txt`.
 
 ```bash
 npm run chart:install

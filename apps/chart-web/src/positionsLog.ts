@@ -1,5 +1,6 @@
 /**
- * Persist BUY/SELL strategy signals to localStorage + optional dev server `positions.txt` (JSON Lines).
+ * Persist BUY/SELL strategy signals to localStorage + optional dev server JSONL file (one file per Vite port).
+ * PM2 sets `CHART_WEB_PORT` per process → `apps/chart-web/positions-{5713|5714|…}.txt`.
  */
 
 export type TradeSide = "BUY" | "SELL";
@@ -28,8 +29,31 @@ export interface PositionSignalRow {
   signature?: string;
 }
 
-const LS_KEY = "sol_bot_positions_v1";
-const API = "/api/positions";
+const LEGACY_LS_KEY = "sol_bot_positions_v1";
+
+function resolvedSignalHistoryId(): string {
+  const raw = import.meta.env.VITE_SIGNAL_HISTORY_ID;
+  return typeof raw === "string" && /^[0-9]+$/.test(raw) ? raw : "5713";
+}
+
+const SIGNAL_HISTORY_ID = resolvedSignalHistoryId();
+const LS_KEY = `sol_bot_positions_v1_${SIGNAL_HISTORY_ID}`;
+const API = `/api/positions/${SIGNAL_HISTORY_ID}`;
+
+/** One-time: copy legacy unsuffixed storage into this instance key after port-scoping shipped. */
+function migrateLegacyLocalStorage(): void {
+  try {
+    const legacy = globalThis.localStorage?.getItem(LEGACY_LS_KEY);
+    const cur = globalThis.localStorage?.getItem(LS_KEY);
+    if (legacy && legacy.length > 0 && (!cur || cur.length === 0)) {
+      globalThis.localStorage?.setItem(LS_KEY, legacy);
+    }
+  } catch {
+    /* quota / private mode */
+  }
+}
+
+migrateLegacyLocalStorage();
 
 function readLocalRaw(): string {
   try {
@@ -141,7 +165,7 @@ export async function appendPosition(row: PositionSignalRow): Promise<void> {
   }
 }
 
-/** Remove one row by {@link positionRowKey}. Updates localStorage and, in `chart:dev`, rewrites `positions.txt`. */
+/** Remove one row by {@link positionRowKey}. Updates localStorage and, in `chart:dev`, rewrites the instance file. */
 export async function removePositionByKey(key: string): Promise<void> {
   const cur = loadLocalPositions();
   const next = cur.filter((r) => positionRowKey(r) !== key);
@@ -157,7 +181,7 @@ export async function removePositionByKey(key: string): Promise<void> {
   }
 }
 
-/** Remove every row (clears `localStorage` and, in `chart:dev`, writes an empty `positions.txt`). */
+/** Remove every row (clears `localStorage` and, in `chart:dev`, writes an empty instance file). */
 export async function clearAllPositions(): Promise<void> {
   writeLocalRaw("");
   try {
@@ -192,7 +216,7 @@ export function downloadPositionsTxt(rows: readonly PositionSignalRow[]): void {
   const blob = new Blob([formatPositionsTxt(rows)], { type: "text/plain;charset=utf-8" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = "positions_";
+  a.download = `positions-${SIGNAL_HISTORY_ID}.txt`;
   a.click();
   URL.revokeObjectURL(a.href);
 }

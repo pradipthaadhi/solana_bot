@@ -8,3 +8,4 @@ apps/chart-web/.env
 .cursor/
 .package-lock.json
 apps/chart-web/positions.txt
+apps/chart-web/positions-*.txt
