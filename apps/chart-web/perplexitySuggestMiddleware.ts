@@ -1,6 +1,6 @@
 /**
  * Vite dev / preview middleware: POST `/api/suggest-gecko-pool` → ranked pools (DexScreener, GeckoTerminal), then Perplexity fallback.
- * `PERPLEXITY_API_KEY` is optional when DexScreener or GeckoTerminal returns pairs.
+ * Perplexity settings (`PERPLEXITY_*_INLINE` below) are configured in this file only — not from `.env`.
  */
 
 import https from "node:https";
@@ -26,8 +26,20 @@ const PERPLEXITY_HOST = "api.perplexity.ai";
 /** Perplexity Sonar chat completions — canonical path (OpenAI SDK alias is `/chat/completions`, not `/v1/chat/completions`). */
 const PERPLEXITY_CHAT_PATH = "/v1/sonar";
 
-/** Default minimum wall-clock time from POST to Perplexity until we respond (pads fast upstream replies). Sonar does not expose “search for N seconds”; this guarantees budget for retrieval + generation. */
-export const DEFAULT_MIN_PERPLEXITY_ROUNDTRIP_MS = 5000;
+/**
+ * Perplexity Sonar API key — set here only (not loaded from `apps/chart-web/.env` or shell env).
+ * Use your dashboard key (`pplx-…`). Keep this file out of public repos if it contains a real secret.
+ */
+export const PERPLEXITY_API_KEY_INLINE = "";
+
+/** Sonar model id — set here only (not from `.env`). Examples: `sonar-pro`, `sonar`. */
+export const PERPLEXITY_MODEL_INLINE = "sonar-pro";
+
+/**
+ * Minimum ms from POST to Perplexity until we send the HTTP response (pads fast upstream replies). Cap 120000 inside the plugin.
+ * Not loaded from `.env`.
+ */
+export const PERPLEXITY_MIN_ROUNDTRIP_MS_INLINE = 5000;
 
 function sleepMs(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -481,14 +493,12 @@ export function geckoPoolSuggestionResponseFormat(): {
 }
 
 /** POST JSON body `{ mint: string }` → `{ ok, pools?, poolAddress?, … }` — `pools` has up to `MAX_SUGGESTED_POOLS` ranked rows when `ok`. */
-export function perplexitySuggestPoolPlugin(
-  apiKey: string,
-  model: string,
-  minRoundtripMs: number = DEFAULT_MIN_PERPLEXITY_ROUNDTRIP_MS,
-): Plugin {
-  const key = apiKey.trim();
-  const mdl = model.trim() || "sonar-pro";
-  const minMs = Number.isFinite(minRoundtripMs) && minRoundtripMs >= 0 ? Math.min(minRoundtripMs, 120_000) : DEFAULT_MIN_PERPLEXITY_ROUNDTRIP_MS;
+export function perplexitySuggestPoolPlugin(): Plugin {
+  const key = PERPLEXITY_API_KEY_INLINE.trim();
+  const mdl = PERPLEXITY_MODEL_INLINE.trim() || "sonar-pro";
+  const minParsed = Number(PERPLEXITY_MIN_ROUNDTRIP_MS_INLINE);
+  const minMs =
+    Number.isFinite(minParsed) && minParsed >= 0 ? Math.min(minParsed, 120_000) : 5000;
 
   async function forwardToPerplexity(userContent: string): Promise<{ status: number; body: string }> {
     /**
@@ -663,7 +673,7 @@ export function perplexitySuggestPoolPlugin(
                 mint,
                 pools: [],
                 error:
-                  "No pools found via DexScreener or GeckoTerminal. Set PERPLEXITY_API_KEY in apps/chart-web/.env (or the shell) and restart Vite for AI fallback.",
+                  "No pools found via DexScreener or GeckoTerminal. Set PERPLEXITY_API_KEY_INLINE in perplexitySuggestMiddleware.ts (or rely on Dex/Gecko when pairs exist).",
               }),
             );
             return;

@@ -400,22 +400,6 @@ export default defineConfig(({ mode }) => {
   const jupiterSwapApiKey =
     fileEnv.JUPITER_SWAP_API_KEY?.trim() ?? process.env.JUPITER_SWAP_API_KEY?.trim() ?? "";
 
-  /** Server-side only (Vite middleware); shell / PM2 overrides apps/chart-web/.env when both set. */
-  const perplexityApiKey =
-    process.env.PERPLEXITY_API_KEY?.trim() ?? fileEnv.PERPLEXITY_API_KEY?.trim() ?? "";
-  /** Default sonar-pro: heavier retrieval closer to the Perplexity website than plain sonar. */
-  const perplexityModel =
-    process.env.PERPLEXITY_MODEL?.trim() ?? fileEnv.PERPLEXITY_MODEL?.trim() ?? "sonar-pro";
-  const perplexityMinRoundtripMsRaw =
-    process.env.PERPLEXITY_MIN_ROUNDTRIP_MS?.trim() ??
-    fileEnv.PERPLEXITY_MIN_ROUNDTRIP_MS?.trim() ??
-    "5000";
-  const perplexityMinRoundtripParsed = Number(perplexityMinRoundtripMsRaw);
-  const perplexityMinRoundtripMs =
-    Number.isFinite(perplexityMinRoundtripParsed) && perplexityMinRoundtripParsed >= 0
-      ? Math.min(perplexityMinRoundtripParsed, 120_000)
-      : 5000;
-
   const devPort = chartWebDevPort(fileEnv);
   const allowedHosts = chartWebAllowedHosts(fileEnv);
   const hmrPublic = chartWebHmrConfig(fileEnv);
@@ -427,7 +411,7 @@ export default defineConfig(({ mode }) => {
     },
     plugins: [
       jupiterDevProxyPlugin(jupiterTargetRaw, jupiterSwapApiKey),
-      perplexitySuggestPoolPlugin(perplexityApiKey, perplexityModel, perplexityMinRoundtripMs),
+      perplexitySuggestPoolPlugin(),
       positionsFileApi(viteSignalHistoryId),
     ],
     resolve: {
