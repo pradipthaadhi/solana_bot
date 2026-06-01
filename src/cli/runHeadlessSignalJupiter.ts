@@ -76,6 +76,7 @@ async function main(): Promise<void> {
     const { bars } = await fetchSolanaPoolOhlcv1m({
       poolAddress: exec.poolAddress,
       limit: 1000,
+      maxAttempts: 1,
       ...(exec.geckoApiBaseUrl !== undefined ? { apiBaseUrl: exec.geckoApiBaseUrl } : {}),
     });
     return bars;

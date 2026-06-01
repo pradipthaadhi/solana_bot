@@ -16,7 +16,7 @@ import {
 } from "lightweight-charts";
 import { SignalAgent } from "@bot/agent/signalAgent.js";
 import {
-  describeGeckoTerminalFetchError,
+  describeOhlcvFetchError,
   fetchSolanaPoolOhlcv1m,
   mergeTailRefresh,
   prependOlderOhlcv,
@@ -181,8 +181,11 @@ const DEFAULT_VISIBLE_1M_BARS = 120;
 const CHART_TIME_SCALE_RIGHT_OFFSET_BARS = 36;
 /** When the left edge of the visible logical range is within this many bars of index 0, fetch older OHLCV. */
 const HISTORY_PREFETCH_FROM_EDGE = 28;
-/** Page size for `before_timestamp` requests (GeckoTerminal public rate limit: stay conservative). */
-const HISTORY_PAGE_LIMIT = 500;
+/**
+ * Page size for older OHLCV pages (`before_timestamp` window).
+ * Kept small to avoid triggering the GeckoTerminal public rate limit when scrolling history.
+ */
+const HISTORY_PAGE_LIMIT = 100;
 
 /**
  * Candles and volume only exist on bar indices 0..lastIdx; the time scale can extend
@@ -341,7 +344,7 @@ async function mount(): Promise<void> {
           <div class="app-header__toolbar-row">
             <div class="toolbar" role="search">
               <input id="pool" type="text" spellcheck="false" autocomplete="off"
-                placeholder="Pool address (GeckoTerminal id)" />
+                placeholder="Pool / pair address (DexScreener)" />
               <div class="toolbar-actions">
                 <button id="btn-load" class="primary btn-pill-glow" type="button">Load pool →</button>
                 <button id="btn-notify" class="btn-ghost-pill" type="button">Alerts</button>
@@ -665,10 +668,10 @@ async function mount(): Promise<void> {
     subpair.textContent = "Demo pool — replace the address above for your pair.";
   } else if (fromUrl && fromUrl.length > 0) {
     pair.textContent = `…/… · 1m · pool ${initialPool}`;
-    subpair.textContent = "Loading pair from GeckoTerminal…";
+    subpair.textContent = "Loading pair metadata…";
   } else {
     pair.textContent = `· 1m · pool ${initialPool}`;
-    subpair.textContent = "Paste a GeckoTerminal pool id or use the demo pool above.";
+    subpair.textContent = "Paste a Solana pair/pool address or use the demo pool above.";
   }
   const chartEl = $("#chart");
   const chartOverlay = $("#chart-overlay");
@@ -680,14 +683,23 @@ async function mount(): Promise<void> {
   let historyBusy = false;
   let lastPairLabel = DEFAULT_DEMO_PAIR_LABEL;
 
-  // In `vite dev`, same-origin `/gt-api` uses `vite.config.ts` proxy (IPv4-preferring HTTPS agent) so flaky
-  // browser/VPN/IPv6 paths do not block OHLCV. Production / `vite preview` hits Gecko directly.
+  // In Vite dev the `/gt-api` proxy (vite.config.ts) forwards to api.geckoterminal.com with IPv4-preferring agent.
+  // In production the browser hits GeckoTerminal directly (public API, no key needed).
   const apiBase = import.meta.env.DEV
     ? `${window.location.origin}/gt-api`
     : "https://api.geckoterminal.com/api/v2";
-  /** Extra attempts for flaky Wi‑Fi / VPN / proxy (Chromium often reports only "Failed to fetch"). */
-  const geckoFetchAttempts = 8;
-  const geckoFetchTimeoutMs = 70_000;
+  /**
+   * maxAttempts = 1: never retry within a single tick so a 429 from one agent doesn't
+   * immediately fire more requests.  The 60-second poll interval is the natural retry boundary.
+   */
+  const ohlcvFetchAttempts = 1;
+  const ohlcvFetchTimeoutMs = 30_000;
+
+  /**
+   * 429 cooldown: after a rate-limit response, silent poll ticks are suppressed for this window.
+   * The Load button always bypasses the cooldown so the user can manually retry.
+   */
+  let rateLimitedUntilMs = 0;
 
   let busy = false;
 
@@ -869,7 +881,7 @@ async function mount(): Promise<void> {
 
   const loadOlderChunk = async (): Promise<void> => {
     const pool = poolInput.value.trim();
-    if (!pool || historyExhausted || historyBusy || busy || sessionBars.length < 2) {
+    if (!pool || historyExhausted || historyBusy || busy || sessionBars.length < 2 || Date.now() < rateLimitedUntilMs) {
       return;
     }
     historyBusy = true;
@@ -882,8 +894,8 @@ async function mount(): Promise<void> {
         limit: HISTORY_PAGE_LIMIT,
         beforeTimestampSec: oldestSec,
         apiBaseUrl: apiBase,
-        maxAttempts: geckoFetchAttempts,
-        fetchTimeoutMs: geckoFetchTimeoutMs,
+        maxAttempts: ohlcvFetchAttempts,
+        fetchTimeoutMs: ohlcvFetchTimeoutMs,
       });
       const altOlder = resolveAltTokenMintForSolPool(olderMeta);
       if (altOlder !== null) {
@@ -944,6 +956,14 @@ async function mount(): Promise<void> {
         crosshairHudEl.textContent = "";
       }
     } catch (e) {
+      const errMsg = e instanceof Error ? e.message : String(e);
+      if (/429|rate.?limit/i.test(errMsg)) {
+        rateLimitedUntilMs = Date.now() + 65_000;
+        showBanner(
+          "err",
+          "GeckoTerminal rate limit hit while loading history. Auto-poll paused for 65 s. Scroll back later or reduce active agents.",
+        );
+      }
       console.warn("[chart-web] loading older OHLCV failed:", e);
     } finally {
       historyBusy = false;
@@ -973,11 +993,15 @@ async function mount(): Promise<void> {
   async function tick(opts?: { silent?: boolean }): Promise<void> {
     const pool = poolInput.value.trim();
     const silent = opts?.silent === true;
+    // During a 429 cooldown, skip automatic poll ticks but allow manual Load presses.
+    if (silent && Date.now() < rateLimitedUntilMs) {
+      return;
+    }
     if (!pool) {
       setSessionPoolSwapTokenMint(null);
       showBanner(
         "info",
-        "Paste a Solana AMM pool address (GeckoTerminal pool id) and click Load. Find it on DexScreener → same pool on GeckoTerminal OHLCV.",
+        "Paste a Solana AMM pool address (GeckoTerminal pool id) and click Load. Find it on DexScreener → same pool on GeckoTerminal.",
       );
       setChartOverlay(true, "No pool address — paste a pool id above, or reload to restore the demo pool.");
       return;
@@ -996,8 +1020,8 @@ async function mount(): Promise<void> {
         poolAddress: pool,
         limit: 1000,
         apiBaseUrl: apiBase,
-        maxAttempts: geckoFetchAttempts,
-        fetchTimeoutMs: geckoFetchTimeoutMs,
+        maxAttempts: ohlcvFetchAttempts,
+        fetchTimeoutMs: ohlcvFetchTimeoutMs,
       });
       if (bars.length === 0) {
         showBanner(
@@ -1078,16 +1102,25 @@ async function mount(): Promise<void> {
         }
       }
     } catch (e) {
-      const msg = describeGeckoTerminalFetchError(e);
+      const msg = describeOhlcvFetchError(e);
+      const isRateLimit = /429|rate.?limit/i.test(msg);
+      if (isRateLimit) {
+        rateLimitedUntilMs = Date.now() + 65_000;
+        console.warn("[chart-web] GeckoTerminal 429 — pausing automatic poll for 65 s.");
+      }
       if (silent && chartPrimed) {
         showBanner("hidden", "");
-        console.warn("[chart-web] silent OHLCV refresh failed (will retry on next interval or when `online` fires):", e);
+        if (!isRateLimit) {
+          console.warn("[chart-web] silent OHLCV refresh failed (will retry on next interval):", e);
+        }
         setChartOverlay(false);
       } else {
-        showBanner("err", msg);
+        showBanner(isRateLimit ? "info" : "err", msg);
         setChartOverlay(
           true,
-          "Could not refresh GeckoTerminal OHLCV. See the banner above; the chart uses direct HTTPS (CORS), not the Vite proxy.",
+          isRateLimit
+            ? "GeckoTerminal rate limited — automatic retry in ~65 s. Press Load to retry now."
+            : "Could not load OHLCV. See the banner above.",
         );
       }
     } finally {
@@ -1367,8 +1400,34 @@ async function mount(): Promise<void> {
     renderPositionsTableBody();
   });
 
-  void tick({ silent: false });
-  timer = window.setInterval(() => void tick({ silent: chartPrimed }), 60_000);
+  // ── GeckoTerminal public rate-limit budget ────────────────────────────────────────────────
+  // Public API: ~10–30 req/min per IP shared across ALL browser tabs on this machine.
+  // With 10 agents we allow only the first 8 (ports 5713–5720, index 0–7) to auto-poll.
+  // Agents 9–10 (ports 5721–5722, index 8–9) are kept alive but require a manual Load press
+  // so they never add automatic requests to the shared rate budget.
+  //
+  // The 8 active agents are staggered 7.5 s apart:
+  //   port 5713 → 0 s, 5714 → 7.5 s, … 5720 → 52.5 s
+  // Steady-state: 8 requests evenly spread over 60 s = 8 req/min  (safely below 10 req/min floor).
+  const _chartPort = Number(import.meta.env.VITE_SIGNAL_HISTORY_ID ?? "5713");
+  const _agentIdx = Number.isFinite(_chartPort) ? Math.max(0, _chartPort - 5713) : 0;
+
+  if (_agentIdx >= 8) {
+    // This agent (index ≥ 8) is over the 8-pool budget — disable auto-polling.
+    showBanner(
+      "info",
+      "Auto-poll disabled for this agent (slot ≥ 8). Max 8 active pools per IP for GeckoTerminal public API. Press Load to fetch this pool manually.",
+    );
+    // Keep a no-op interval so the beforeunload cleanup has a valid timer to clear.
+    timer = window.setInterval(() => {}, 60_000);
+  } else {
+    const startupDelayMs = _agentIdx * 7_500;
+    if (startupDelayMs > 0) {
+      await new Promise<void>((resolve) => setTimeout(resolve, startupDelayMs));
+    }
+    void tick({ silent: false });
+    timer = window.setInterval(() => void tick({ silent: chartPrimed }), 60_000);
+  }
 
   let onlineRetryTimer: number | undefined;
   window.addEventListener("online", () => {

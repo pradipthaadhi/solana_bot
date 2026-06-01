@@ -39,7 +39,7 @@ export SOLANA_SECRET_KEY="<never commit>"
 | `SIGNAL_EXEC_SLIPPAGE_BPS` | `100` | Slippage tolerance |
 | `SIGNAL_EXEC_POLL_MS` | `60000` | Poll interval |
 | `SIGNAL_EXEC_ONCE` | `0` | Set `1` for a single tick then exit (smoke) |
-| `SIGNAL_EXEC_GECKO_API_BASE` | unset | Optional Gecko API base override |
+| `SIGNAL_EXEC_GECKO_API_BASE` | unset | Optional GeckoTerminal API base override |
 
 ## 3. Real on-chain sends (review twice)
 

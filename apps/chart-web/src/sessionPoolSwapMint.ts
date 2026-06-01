@@ -1,5 +1,5 @@
 /**
- * Mint for the pool’s non-SOL leg, derived from Gecko OHLCV `meta` when available.
+ * Mint for the pool's non-SOL leg, derived from GeckoTerminal OHLCV meta when available.
  * Avoids swapping with a stale `VITE_TOKEN_MINT` when the chart pool is x/SOL.
  */
 let sessionPoolAltMint: string | null = null;
@@ -13,7 +13,7 @@ export function setSessionPoolSwapTokenMint(mint: string | null): void {
   }
 }
 
-/** Prefer Gecko-resolved mint; else non-empty `VITE_TOKEN_MINT` from env. */
+/** Prefer GeckoTerminal-resolved mint; else non-empty `VITE_TOKEN_MINT` from env. */
 export function getSessionPoolSwapTokenMint(fallbackMint: string): string {
   const fb = fallbackMint.trim();
   return sessionPoolAltMint ?? (fb.length > 0 ? fb : "");

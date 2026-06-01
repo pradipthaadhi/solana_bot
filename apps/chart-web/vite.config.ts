@@ -50,7 +50,7 @@ function jupiterProxyOrigin(raw: string): string {
 }
 
 /**
- * DNS for the Vite Node process (Jupiter / Gecko proxy).
+ * DNS for the Vite Node process (Jupiter / Moralis proxy).
  * Defaults to the **OS resolver** — forcing 8.8.8.8/1.1.1.1 breaks on networks that block DNS to those IPs
  * (`getaddrinfo ENOTFOUND` for every upstream host).
  *

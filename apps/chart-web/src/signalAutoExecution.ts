@@ -95,7 +95,7 @@ function innerAutoAdapter(pairLabel: string, poolAddress: string, onPersisted: (
         ...row,
         txStatus: "skipped",
         txDetail:
-          "No token mint: load the pool (Gecko should supply base/quote, including x/SOL) or set VITE_TOKEN_MINT in .env.",
+          "No token mint: load the pool (GeckoTerminal meta supplies base/quote mints for x/SOL) or set VITE_TOKEN_MINT in .env.",
       };
     }
     try {
