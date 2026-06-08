@@ -232,6 +232,17 @@ function resolveSignalHistoryId(fileEnv: Record<string, string>): string {
   return /^[0-9]+$/.test(raw) ? raw : "5713";
 }
 
+/**
+ * Read a positive integer env (PM2 / shell first, then `apps/chart-web/.env`), else `fallback`.
+ * Used to hand the browser the fleet shape (instance count + base port) so it can evenly stagger
+ * its GeckoTerminal polls across the poll window and never burst past the public rate limit.
+ */
+function resolvePositiveIntEnv(fileEnv: Record<string, string>, key: string, fallback: number): string {
+  const raw = (process.env[key] ?? fileEnv[key] ?? "").trim();
+  const n = Number(raw);
+  return Number.isInteger(n) && n > 0 ? String(n) : String(fallback);
+}
+
 /** Dev-only: append/read `positions-{CHART_WEB_PORT}.txt` for BUY/SELL JSONL (one file per PM2 / dev port). */
 function positionsFileApi(signalHistoryId: string): Plugin {
   const safeId = /^[0-9]+$/.test(signalHistoryId) ? signalHistoryId : "5713";
@@ -391,6 +402,8 @@ export default defineConfig(({ mode }) => {
     typeof deskPrivateKeyFromShell === "string" ? deskPrivateKeyFromShell : (fileEnv.VITE_DESK_PRIVATE_KEY ?? "");
 
   const viteSignalHistoryId = resolveSignalHistoryId(fileEnv);
+  const viteInstanceCount = resolvePositiveIntEnv(fileEnv, "CHART_WEB_INSTANCE_COUNT", 7);
+  const viteBasePort = resolvePositiveIntEnv(fileEnv, "CHART_WEB_BASE_PORT", 5713);
 
   const jupiterTargetRaw =
     fileEnv.JUPITER_API_PROXY_TARGET?.trim() ||
@@ -408,6 +421,8 @@ export default defineConfig(({ mode }) => {
     define: {
       "import.meta.env.VITE_DESK_PRIVATE_KEY": JSON.stringify(viteDeskPrivateKey),
       "import.meta.env.VITE_SIGNAL_HISTORY_ID": JSON.stringify(viteSignalHistoryId),
+      "import.meta.env.VITE_CHART_WEB_INSTANCE_COUNT": JSON.stringify(viteInstanceCount),
+      "import.meta.env.VITE_CHART_WEB_BASE_PORT": JSON.stringify(viteBasePort),
     },
     plugins: [
       jupiterDevProxyPlugin(jupiterTargetRaw, jupiterSwapApiKey),

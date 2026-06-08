@@ -5,8 +5,11 @@
  * Rate-limit design (public tier ≈ 10–30 req/min per IP across ALL agents on this IP):
  *  • DEFAULT_MAX_ATTEMPTS = 1 — fail fast; the caller (chart poll / headless runner) retries
  *    on the next natural poll cycle (~60 s) instead of hammering within the same tick.
- *  • HTTP 429 is NEVER retried — throw immediately so callers can impose a cooldown window.
- *  • Keep ≤ 8 active agents per IP and stagger their startup to stay within the public limit.
+ *  • HTTP 429 is NEVER retried — it throws {@link GeckoTerminalRateLimitError}, which carries the
+ *    server's `Retry-After` (when present) so callers can size their cooldown precisely.
+ *  • Keep the auto-polling instances per IP evenly staggered across the poll window so the
+ *    combined request stream never bursts (the chart-web budget logic does this from the
+ *    PM2 instance count — see apps/chart-web/src/main.ts).
  */
 
 import type { Ohlcv } from "../strategy/candleSemantics.js";
@@ -170,6 +173,44 @@ export interface FetchSolanaPoolOhlcv1mParams {
 const DEFAULT_MAX_ATTEMPTS = 1;
 const DEFAULT_FETCH_TIMEOUT_MS = 30_000;
 
+/**
+ * Thrown on HTTP 429 from GeckoTerminal. Carries the parsed `Retry-After` (ms) when the server
+ * sent one, so the caller can pause for exactly as long as the API asks instead of guessing.
+ * The message still contains "rate limited" / "429" so existing string checks keep working.
+ */
+export class GeckoTerminalRateLimitError extends Error {
+  /** Milliseconds the server asked us to wait, parsed from `Retry-After`. Undefined when absent. */
+  readonly retryAfterMs?: number;
+  constructor(message: string, retryAfterMs?: number) {
+    super(message);
+    this.name = "GeckoTerminalRateLimitError";
+    if (retryAfterMs !== undefined) {
+      this.retryAfterMs = retryAfterMs;
+    }
+  }
+}
+
+/** `Retry-After` is either delta-seconds or an HTTP-date. Returns ms to wait, or undefined. */
+export function parseRetryAfterMs(headerValue: string | null): number | undefined {
+  if (headerValue === null) return undefined;
+  const v = headerValue.trim();
+  if (v.length === 0) return undefined;
+  if (/^\d+$/.test(v)) {
+    const secs = Number(v);
+    return Number.isFinite(secs) ? Math.max(0, secs * 1000) : undefined;
+  }
+  const whenMs = Date.parse(v);
+  if (Number.isFinite(whenMs)) {
+    return Math.max(0, whenMs - Date.now());
+  }
+  return undefined;
+}
+
+/** Extract the server-requested cooldown (ms) from a thrown error, when it was a 429 with `Retry-After`. */
+export function rateLimitRetryAfterMs(e: unknown): number | undefined {
+  return e instanceof GeckoTerminalRateLimitError ? e.retryAfterMs : undefined;
+}
+
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -233,7 +274,7 @@ export function describeOhlcvFetchError(e: unknown): string {
   const raw = errorMessageOf(e);
   const low = raw.toLowerCase();
   if (low.includes("rate limited") || low.includes("429")) {
-    return "GeckoTerminal rate limit hit (HTTP 429) — too many requests from this IP. The chart will retry automatically in ~65 s. Reduce active agents to ≤ 8 if this recurs.";
+    return "GeckoTerminal rate limit hit (HTTP 429) — too many requests from this IP. The chart will retry automatically after a short cooldown. Reduce the number of running chart instances if this recurs.";
   }
   if (low.includes("geckoterminal: no ohlcv") || low.includes("not in geckoterminal") || (low.includes("404") && low.includes("gecko"))) {
     return "That pool has no 1m OHLCV on GeckoTerminal (HTTP 404). Use a valid Solana pool address from DexScreener → same pool on geckoterminal.com.";
@@ -301,8 +342,10 @@ export async function fetchSolanaPoolOhlcv1m(params: FetchSolanaPoolOhlcv1mParam
       if (!res.ok) {
         const text = await res.text().catch(() => "");
         if (res.status === 429) {
-          throw new Error(
+          const retryAfterMs = parseRetryAfterMs(res.headers.get("retry-after"));
+          throw new GeckoTerminalRateLimitError(
             `GeckoTerminal rate limited (HTTP 429) — too many requests from this IP. ${text.slice(0, 200)}`,
+            retryAfterMs,
           );
         }
         if (isRetriableHttpStatus(res.status) && attempt < maxAttempts - 1) {

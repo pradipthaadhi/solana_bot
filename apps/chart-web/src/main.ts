@@ -20,6 +20,7 @@ import {
   fetchSolanaPoolOhlcv1m,
   mergeTailRefresh,
   prependOlderOhlcv,
+  rateLimitRetryAfterMs,
   resolveAltTokenMintForSolPool,
 } from "@bot/data/geckoTerminalOhlcv.js";
 import type { Ohlcv } from "@bot/strategy/candleSemantics.js";
@@ -186,6 +187,12 @@ const HISTORY_PREFETCH_FROM_EDGE = 28;
  * Kept small to avoid triggering the GeckoTerminal public rate limit when scrolling history.
  */
 const HISTORY_PAGE_LIMIT = 100;
+
+/** Parse a Vite-injected string env to a positive integer, falling back when absent/invalid. */
+function toPositiveInt(raw: string | undefined, fallback: number): number {
+  const n = Number((raw ?? "").trim());
+  return Number.isInteger(n) && n > 0 ? n : fallback;
+}
 
 /**
  * Candles and volume only exist on bar indices 0..lastIdx; the time scale can extend
@@ -701,6 +708,38 @@ async function mount(): Promise<void> {
    */
   let rateLimitedUntilMs = 0;
 
+  // ── GeckoTerminal public rate-limit budget ──────────────────────────────────────────────────
+  // The public API is ~10–30 req/min per IP, shared across ALL chart instances on this machine.
+  // To guarantee the IP never bursts past that, every instance spreads its one-poll-per-minute
+  // request evenly across the minute: with N instances, instance #i fires at offset i·(60s / N)
+  // and repeats every ~60 s. The same per-instance offset is reused for reconnect retries and
+  // post-429 resumes so those events never collapse every instance onto the same instant.
+  const POLL_WINDOW_MS = 60_000;
+  // Hard ceiling on auto-polling instances per IP — protects the budget if the fleet is bumped past
+  // what the public limit can absorb. Extra instances stay alive but require a manual Load press.
+  const MAX_AUTOPOLL_AGENTS = 8;
+  // Floor for the 429 cooldown when the server sends no Retry-After (~one poll window of breathing room).
+  const RATE_LIMIT_COOLDOWN_FLOOR_MS = 65_000;
+
+  const basePort = toPositiveInt(import.meta.env.VITE_CHART_WEB_BASE_PORT, 5713);
+  const instanceCount = toPositiveInt(import.meta.env.VITE_CHART_WEB_INSTANCE_COUNT, 7);
+  const chartPort = toPositiveInt(import.meta.env.VITE_SIGNAL_HISTORY_ID, basePort);
+  const agentIdx = Math.max(0, chartPort - basePort);
+  const activeAgents = Math.max(1, Math.min(instanceCount, MAX_AUTOPOLL_AGENTS));
+  // Even spacing keeps the per-IP request stream smooth (e.g. 7 instances → one poll every ~8.6 s).
+  const pollSpacingMs = Math.floor(POLL_WINDOW_MS / activeAgents);
+  const agentOffsetMs = (agentIdx % activeAgents) * pollSpacingMs;
+
+  /**
+   * How long to suppress auto-polls after a 429: honor the server's Retry-After when present, else a
+   * one-window floor — then add this instance's offset so resumes re-disperse instead of every
+   * instance retrying on the same instant.
+   */
+  const rateLimitCooldownMs = (e: unknown): number => {
+    const retryAfter = rateLimitRetryAfterMs(e) ?? 0;
+    return Math.max(RATE_LIMIT_COOLDOWN_FLOOR_MS, retryAfter) + agentOffsetMs;
+  };
+
   let busy = false;
 
   /** 5 dp on the main price scale (e.g. 0.04430) so VWAP / VWMA last-value labels stay distinct. */
@@ -958,10 +997,11 @@ async function mount(): Promise<void> {
     } catch (e) {
       const errMsg = e instanceof Error ? e.message : String(e);
       if (/429|rate.?limit/i.test(errMsg)) {
-        rateLimitedUntilMs = Date.now() + 65_000;
+        const cooldownMs = rateLimitCooldownMs(e);
+        rateLimitedUntilMs = Date.now() + cooldownMs;
         showBanner(
           "err",
-          "GeckoTerminal rate limit hit while loading history. Auto-poll paused for 65 s. Scroll back later or reduce active agents.",
+          `GeckoTerminal rate limit hit while loading history. Auto-poll paused for ~${Math.round(cooldownMs / 1000)} s. Scroll back later or reduce running chart instances.`,
         );
       }
       console.warn("[chart-web] loading older OHLCV failed:", e);
@@ -1104,9 +1144,12 @@ async function mount(): Promise<void> {
     } catch (e) {
       const msg = describeOhlcvFetchError(e);
       const isRateLimit = /429|rate.?limit/i.test(msg);
+      let cooldownSecs = 0;
       if (isRateLimit) {
-        rateLimitedUntilMs = Date.now() + 65_000;
-        console.warn("[chart-web] GeckoTerminal 429 — pausing automatic poll for 65 s.");
+        const cooldownMs = rateLimitCooldownMs(e);
+        cooldownSecs = Math.round(cooldownMs / 1000);
+        rateLimitedUntilMs = Date.now() + cooldownMs;
+        console.warn(`[chart-web] GeckoTerminal 429 — pausing automatic poll for ~${cooldownSecs} s.`);
       }
       if (silent && chartPrimed) {
         showBanner("hidden", "");
@@ -1119,7 +1162,7 @@ async function mount(): Promise<void> {
         setChartOverlay(
           true,
           isRateLimit
-            ? "GeckoTerminal rate limited — automatic retry in ~65 s. Press Load to retry now."
+            ? `GeckoTerminal rate limited — automatic retry in ~${cooldownSecs} s. Press Load to retry now.`
             : "Could not load OHLCV. See the banner above.",
         );
       }
@@ -1400,47 +1443,51 @@ async function mount(): Promise<void> {
     renderPositionsTableBody();
   });
 
-  // ── GeckoTerminal public rate-limit budget ────────────────────────────────────────────────
-  // Public API: ~10–30 req/min per IP shared across ALL browser tabs on this machine.
-  // With 10 agents we allow only the first 8 (ports 5713–5720, index 0–7) to auto-poll.
-  // Agents 9–10 (ports 5721–5722, index 8–9) are kept alive but require a manual Load press
-  // so they never add automatic requests to the shared rate budget.
-  //
-  // The 8 active agents are staggered 7.5 s apart:
-  //   port 5713 → 0 s, 5714 → 7.5 s, … 5720 → 52.5 s
-  // Steady-state: 8 requests evenly spread over 60 s = 8 req/min  (safely below 10 req/min floor).
-  const _chartPort = Number(import.meta.env.VITE_SIGNAL_HISTORY_ID ?? "5713");
-  const _agentIdx = Number.isFinite(_chartPort) ? Math.max(0, _chartPort - 5713) : 0;
+  // ── GeckoTerminal public rate-limit budget (fleet shape from PM2; see top of mount) ──────────
+  // Auto-polling instances are evenly staggered across the poll window so the shared IP never
+  // bursts: instance #i starts at offset i·pollSpacing, then re-schedules every ~POLL_WINDOW_MS
+  // with a small jitter (≤ one spacing) so any cluster created by a manual Load / reconnect /
+  // 429 cooldown gradually re-disperses instead of locking phase. Instances beyond
+  // MAX_AUTOPOLL_AGENTS stay alive but only fetch on a manual Load press.
 
-  if (_agentIdx >= 8) {
-    // This agent (index ≥ 8) is over the 8-pool budget — disable auto-polling.
+  // Each cycle: one poll window + jitter in [0, pollSpacing). The jitter never shortens the period,
+  // so the per-instance rate stays ≤ 1 req / POLL_WINDOW_MS regardless of phase.
+  const scheduleNextTick = (): void => {
+    const jitterMs = Math.floor(Math.random() * pollSpacingMs);
+    timer = window.setTimeout(() => {
+      void tick({ silent: chartPrimed });
+      scheduleNextTick();
+    }, POLL_WINDOW_MS + jitterMs);
+  };
+
+  if (agentIdx >= MAX_AUTOPOLL_AGENTS) {
+    // Over the per-IP auto-poll budget — keep alive but require a manual Load (no timer needed).
     showBanner(
       "info",
-      "Auto-poll disabled for this agent (slot ≥ 8). Max 8 active pools per IP for GeckoTerminal public API. Press Load to fetch this pool manually.",
+      `Auto-poll disabled for this slot (#${agentIdx + 1}). Max ${MAX_AUTOPOLL_AGENTS} auto-polling pools per IP for GeckoTerminal's public API. Press Load to fetch this pool manually.`,
     );
-    // Keep a no-op interval so the beforeunload cleanup has a valid timer to clear.
-    timer = window.setInterval(() => {}, 60_000);
   } else {
-    const startupDelayMs = _agentIdx * 7_500;
-    if (startupDelayMs > 0) {
-      await new Promise<void>((resolve) => setTimeout(resolve, startupDelayMs));
+    if (agentOffsetMs > 0) {
+      await new Promise<void>((resolve) => setTimeout(resolve, agentOffsetMs));
     }
     void tick({ silent: false });
-    timer = window.setInterval(() => void tick({ silent: chartPrimed }), 60_000);
+    scheduleNextTick();
   }
 
   let onlineRetryTimer: number | undefined;
   window.addEventListener("online", () => {
     window.clearTimeout(onlineRetryTimer);
+    // Stagger reconnect by this instance's offset so a network blip doesn't make every instance
+    // re-fetch on the same instant (the classic post-reconnect 429 burst).
     onlineRetryTimer = window.setTimeout(() => {
       void tick({ silent: chartPrimed });
-    }, 1200);
+    }, 1200 + agentOffsetMs);
   });
 
   window.addEventListener("beforeunload", () => {
     ro.disconnect();
     if (timer !== undefined) {
-      window.clearInterval(timer);
+      window.clearTimeout(timer);
     }
     window.clearTimeout(onlineRetryTimer);
     window.clearTimeout(visibleRangeDebounce);

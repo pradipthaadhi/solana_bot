@@ -23,6 +23,13 @@ interface ImportMetaEnv {
    * Set via `CHART_WEB_PORT` when starting Vite (PM2 sets per chart-web-N).
    */
   readonly VITE_SIGNAL_HISTORY_ID?: string;
+  /**
+   * Total number of chart-web instances in the fleet (PM2 `CHART_WEB_INSTANCE_COUNT`).
+   * The GeckoTerminal poll budget uses this to evenly stagger polls across the poll window.
+   */
+  readonly VITE_CHART_WEB_INSTANCE_COUNT?: string;
+  /** Lowest listen port in the fleet (PM2 `CHART_WEB_BASE_PORT`); `port - basePort` = this agent's index. */
+  readonly VITE_CHART_WEB_BASE_PORT?: string;
 }
 
 interface ImportMeta {
