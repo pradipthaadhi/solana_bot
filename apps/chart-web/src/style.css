@@ -712,6 +712,10 @@ html.first-visit-intro .orbit-node--ml .orbit-node__bubble {
   word-break: break-all;
 }
 
+.desk-wallet-banner__balance {
+  color: var(--accent);
+}
+
 .app-brand {
   display: flex;
   align-items: center;

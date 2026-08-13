@@ -1,5 +1,6 @@
 import "./polyfills.js";
 import "./style.css";
+import { Connection, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import {
   ColorType,
   CrosshairMode,
@@ -58,6 +59,7 @@ import {
 import { setSignalAutoSolInputToEnvDefaults } from "./signalTradeAmount.js";
 import { setSessionPoolSwapTokenMint } from "./sessionPoolSwapMint.js";
 import { clearInMemoryOpenPositions, rehydrateOpenPositionFromLog } from "./sessionTradePairing.js";
+import { readDeskEnv } from "./chartWebEnv.js";
 
 /** Icon-only control for removing a row from the signal log (label via `aria-label` on the button). */
 const TRASH_SVG = `<svg class="position-row-delete__icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>`;
@@ -294,21 +296,48 @@ function tailWindowEvents(events: readonly StrategyEvent[], lastIndex: number, l
 
 function wireDeskWalletAddressBanner(): void {
   const el = document.getElementById("desk-wallet-address");
+  // Bumped on every refresh so a slow RPC response for a since-replaced wallet can't clobber
+  // the balance shown for the current one.
+  let requestSeq = 0;
   const refresh = (): void => {
-    const kp = getSessionTradingKeypair();
     if (!el) {
       return;
     }
+    requestSeq += 1;
+    const seq = requestSeq;
+    const kp = getSessionTradingKeypair();
     if (kp === null) {
       el.hidden = true;
-      el.textContent = "";
+      el.replaceChildren();
       el.removeAttribute("title");
       return;
     }
     const addr = kp.publicKey.toBase58();
+    const addrLine = document.createElement("span");
+    addrLine.textContent = `Desk wallet: ${addr}`;
+    const balanceLine = document.createElement("span");
+    balanceLine.className = "desk-wallet-banner__balance";
+    balanceLine.textContent = "Balance: loading…";
     el.hidden = false;
-    el.textContent = `Desk wallet: ${addr}`;
     el.title = addr;
+    el.replaceChildren(addrLine, document.createElement("br"), balanceLine);
+
+    void (async () => {
+      try {
+        const conn = new Connection(readDeskEnv().rpcUrl, { commitment: "confirmed" });
+        const lamports = await conn.getBalance(kp.publicKey);
+        if (seq !== requestSeq) {
+          return;
+        }
+        balanceLine.textContent = `Balance: ${(lamports / LAMPORTS_PER_SOL).toFixed(4)} SOL`;
+      } catch (e) {
+        if (seq !== requestSeq) {
+          return;
+        }
+        balanceLine.textContent = "Balance: unavailable (RPC error)";
+        balanceLine.title = e instanceof Error ? e.message : String(e);
+      }
+    })();
   };
   refresh();
   window.addEventListener("chart-web:desk-wallet-changed", refresh);
