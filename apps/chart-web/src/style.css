@@ -23,6 +23,7 @@
   --accent-glow: rgba(91, 140, 255, 0.45);
   --buy: #2ee6a8;
   --sell: #ff6b7a;
+  --warn: #f5a623;
   --radius-sm: 10px;
   --radius-md: 14px;
   --radius-lg: 18px;
@@ -1078,6 +1079,146 @@ button.btn-ghost-pill:not(:disabled):hover {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.02em;
+}
+
+/** Chart + wallet-balance sidebar, side by side on desktop (equal-height via flex stretch — the
+ * sidebar card fills exactly the main chart's height); stacks to a column under 900px. */
+.desk-chart-row {
+  display: flex;
+  align-items: stretch;
+  gap: 16px;
+}
+
+.desk-chart-row .chart-wrap {
+  flex: 1 1 0%;
+  min-width: 0;
+}
+
+.wallet-balance-card {
+  flex: 0 0 300px;
+  width: 300px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-md);
+  padding: 14px 16px 10px;
+  background: linear-gradient(160deg, rgba(22, 27, 40, 0.9) 0%, rgba(12, 14, 22, 0.95) 100%);
+  box-shadow: var(--shadow-sm);
+  animation: fade-in-up 0.55s 0.12s var(--ease-out) both;
+}
+
+.wallet-balance-card__head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.wallet-balance-card__title {
+  font-size: 10px;
+  font-weight: 600;
+  opacity: 0.72;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.wallet-balance-card__address {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text);
+  opacity: 0.85;
+  cursor: default;
+}
+
+.wallet-balance-card__hint {
+  font-size: 10px;
+  color: var(--text-muted);
+  opacity: 0.6;
+}
+
+.wallet-balance-card__stat-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 2px 0;
+}
+
+.wallet-balance-card__value {
+  font-size: 20px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  color: #f5b942;
+}
+
+.wallet-balance-card__delta {
+  font-size: 11px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.wallet-balance-card__delta.is-up {
+  color: #00d68f;
+}
+
+.wallet-balance-card__delta.is-down {
+  color: #ff3b5c;
+}
+
+.wallet-balance-chart {
+  flex: 1 1 auto;
+  min-height: 140px;
+  margin-top: 8px;
+}
+
+@media (max-width: 900px) {
+  .desk-chart-row {
+    flex-direction: column;
+  }
+
+  .wallet-balance-card {
+    flex: 1 1 auto;
+    width: 100%;
+  }
+
+  .wallet-balance-chart {
+    height: 160px;
+    flex: none;
+  }
+}
+
+.wallet-balance-card__hud {
+  min-height: 1.35em;
+  margin: 8px 0 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  word-break: break-word;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  background: rgba(8, 10, 16, 0.45);
+  border: 1px solid transparent;
+}
+
+.wallet-balance-card__hud:not(:empty) {
+  border-color: var(--stroke);
+}
+
+.wallet-balance-card__hud:empty {
+  margin-top: 0;
+  min-height: 0;
+  padding: 0;
+  background: transparent;
+  border: none;
+}
+
+.wallet-balance-card__empty {
+  margin: 8px 0 2px;
 }
 
 .signal-auto-sol-row {
@@ -2255,6 +2396,12 @@ button.btn-ghost-pill:not(:disabled):hover {
 
 .side-sell {
   color: var(--sell);
+  font-weight: 700;
+}
+
+/** Errored fill — distinct from the green/red "this trade happened" direction colors above. */
+.side-warn {
+  color: var(--warn);
   font-weight: 700;
 }
 

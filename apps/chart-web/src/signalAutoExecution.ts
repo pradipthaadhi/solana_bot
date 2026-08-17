@@ -8,7 +8,7 @@ import {
   solPairSignalSellExactInTokenQuote,
   solPairSignalSellExactSolOutQuote,
 } from "@bot/execution/solPairSwapQuotes.js";
-import { Connection } from "@solana/web3.js";
+import { Connection, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { appendPosition, type PositionSignalRow } from "./positionsLog.js";
 import { readDeskEnv } from "./chartWebEnv.js";
 import { resolveJupiterApiBaseUrl } from "./jupiterApiBaseUrl.js";
@@ -32,12 +32,37 @@ import {
 } from "./chartToaster.js";
 import { notifyDesktop } from "./notify.js";
 
+/** Post-trade balance snapshot for the wallet-balance chart; a read failure must not fail the trade row. */
+async function sampleWalletBalanceSol(conn: Connection, owner: Parameters<Connection["getBalance"]>[0]): Promise<number | undefined> {
+  try {
+    const lamports = await conn.getBalance(owner);
+    return lamports / LAMPORTS_PER_SOL;
+  } catch {
+    return undefined;
+  }
+}
+
 /** ExactOut (target SOL) can quote more x_token input than the wallet holds; sim then fails with SPL 0x1 "insufficient funds". */
 function isSellInsufficientError(message: string): boolean {
   return (
     message.includes("INSUFFICIENT_TOKEN_BALANCE") ||
     /insufficient funds/i.test(message) ||
     /custom program error: 0x1/i.test(message)
+  );
+}
+
+/**
+ * Some AMM programs only implement swap-exact-tokens-in at the on-chain level, not
+ * swap-for-exact-tokens-out — Jupiter's ExactOut quote for that pair 400s with "no route" even
+ * though an ExactIn quote (spend the token balance, take whatever SOL comes out) would route fine.
+ * Distinct from {@link isSellInsufficientError}: not a balance problem, a routing-mode problem —
+ * still worth the same ExactIn retry, just for a different reason.
+ */
+function isNoRouteFoundError(message: string): boolean {
+  return (
+    /no routes? found/i.test(message) ||
+    message.includes("NO_ROUTES_FOUND") ||
+    message.includes("COULD_NOT_FIND_ANY_ROUTE")
   );
 }
 
@@ -140,11 +165,13 @@ function innerAutoAdapter(pairLabel: string, poolAddress: string, onPersisted: (
           skipRpcHealthCheck: true,
         });
         const sig = res.signature ?? "";
+        const walletBalanceSol = await sampleWalletBalanceSol(conn, kp.publicKey);
         return {
           ...row,
           txStatus: "ok",
           signature: sig,
           txDetail: sig ? `Confirmed · ${sig.slice(0, 8)}…` : "Confirmed",
+          ...(walletBalanceSol !== undefined ? { walletBalanceSol } : {}),
         };
       }
       const splBalance = await readWalletSplTokenBalanceRaw(conn, kp.publicKey, tokenMint);
@@ -166,8 +193,9 @@ function innerAutoAdapter(pairLabel: string, poolAddress: string, onPersisted: (
         skipRpcHealthCheck: true,
       } as const;
 
-      const okRow = (res: { signature?: string }, extraDetail = ""): PositionSignalRow => {
+      const okRow = async (res: { signature?: string }, extraDetail = ""): Promise<PositionSignalRow> => {
         const sig = res.signature ?? "";
+        const walletBalanceSol = await sampleWalletBalanceSol(conn, kp.publicKey);
         return {
           ...row,
           txStatus: "ok",
@@ -175,11 +203,12 @@ function innerAutoAdapter(pairLabel: string, poolAddress: string, onPersisted: (
           txDetail: sig
             ? `Confirmed · ${sig.slice(0, 8)}…${extraDetail}`
             : `Confirmed${extraDetail}`,
+          ...(walletBalanceSol !== undefined ? { walletBalanceSol } : {}),
         };
       };
 
       try {
-        return okRow(
+        return await okRow(
           await executeJupiterSwap({
             ...swapBase,
             quoteParams: solPairSignalSellExactSolOutQuote(tokenMint, sellLamports, deskEnv.signalSlippageBps),
@@ -188,16 +217,19 @@ function innerAutoAdapter(pairLabel: string, poolAddress: string, onPersisted: (
         );
       } catch (first) {
         const firstMsg = first instanceof Error ? first.message : String(first);
-        if (!isSellInsufficientError(firstMsg) || maxTokenIn < 1n) {
+        const noRoute = isNoRouteFoundError(firstMsg);
+        if ((!isSellInsufficientError(firstMsg) && !noRoute) || maxTokenIn < 1n) {
           return { ...row, txStatus: "error", txDetail: firstMsg };
         }
         const res = await executeJupiterSwap({
           ...swapBase,
           quoteParams: solPairSignalSellExactInTokenQuote(tokenMint, maxTokenIn, deskEnv.signalSlippageBps),
         });
-        return okRow(
+        return await okRow(
           res,
-          " — sold spendable token balance (ExactOut target needed more x than the wallet had).",
+          noRoute
+            ? " — ExactOut had no route for this pair; retried as ExactIn (sold spendable token balance)."
+            : " — sold spendable token balance (ExactOut target needed more x than the wallet had).",
         );
       }
     } catch (e) {

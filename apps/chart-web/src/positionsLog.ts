@@ -27,6 +27,8 @@ export interface PositionSignalRow {
   txDetail?: string;
   /** Solana signature when `txStatus === "ok"`. */
   signature?: string;
+  /** Desk wallet SOL balance sampled right after this trade confirmed on-chain (`txStatus === "ok"` rows only). */
+  walletBalanceSol?: number;
 }
 
 const LEGACY_LS_KEY = "sol_bot_positions_v1";
@@ -117,6 +119,9 @@ function isRow(x: unknown): x is PositionSignalRow {
     return false;
   }
   if (r.tradeId !== undefined && typeof r.tradeId !== "string") {
+    return false;
+  }
+  if (r.walletBalanceSol !== undefined && (typeof r.walletBalanceSol !== "number" || !Number.isFinite(r.walletBalanceSol))) {
     return false;
   }
   return true;

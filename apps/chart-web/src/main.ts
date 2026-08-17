@@ -12,6 +12,7 @@ import {
   type Logical,
   type LogicalRange,
   type Range,
+  type SeriesMarker,
   type Time,
   type UTCTimestamp,
 } from "lightweight-charts";
@@ -60,6 +61,7 @@ import { setSignalAutoSolInputToEnvDefaults } from "./signalTradeAmount.js";
 import { setSessionPoolSwapTokenMint } from "./sessionPoolSwapMint.js";
 import { clearInMemoryOpenPositions, rehydrateOpenPositionFromLog } from "./sessionTradePairing.js";
 import { readDeskEnv } from "./chartWebEnv.js";
+import { mountWalletBalanceChart, tradeBalanceEvents } from "./walletBalanceChart.js";
 
 /** Icon-only control for removing a row from the signal log (label via `aria-label` on the button). */
 const TRASH_SVG = `<svg class="position-row-delete__icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>`;
@@ -142,6 +144,36 @@ function toVolume(bars: readonly Ohlcv[]): HistogramData[] {
     value: b.volume,
     color: b.close >= b.open ? "rgba(38,166,154,0.55)" : "rgba(239,83,80,0.55)",
   }));
+}
+
+/**
+ * BUY/SELL flags on the candle series. Deliberately NOT the same muted teal/red used for
+ * candle up/down (those blend into the candle body colors around them) — bright, saturated
+ * "signal" colors that don't collide with any VWAP/VWMA line or candle color already on the
+ * chart, so they read as unmistakably distinct from routine bullish/bearish candles.
+ */
+const BUY_SIGNAL_COLOR = "#00d68f";
+const SELL_SIGNAL_COLOR = "#ff3b5c";
+
+function toSignalMarkers(bars: readonly Ohlcv[], events: readonly StrategyEvent[]): SeriesMarker<UTCTimestamp>[] {
+  const out: SeriesMarker<UTCTimestamp>[] = [];
+  for (const ev of events) {
+    if (ev.kind !== "SIGNAL_ENTRY" && ev.kind !== "SIGNAL_EXIT") {
+      continue;
+    }
+    const b = bars[ev.barIndex];
+    if (!b) {
+      continue;
+    }
+    const time = Math.floor(b.timeMs / 1000) as UTCTimestamp;
+    out.push(
+      ev.kind === "SIGNAL_ENTRY"
+        ? { time, position: "belowBar", color: BUY_SIGNAL_COLOR, shape: "arrowUp", text: "BUY", size: 2 }
+        : { time, position: "aboveBar", color: SELL_SIGNAL_COLOR, shape: "arrowDown", text: "SELL", size: 2 },
+    );
+  }
+  out.sort((a, b) => (a.time as number) - (b.time as number));
+  return out;
 }
 
 /**
@@ -294,33 +326,52 @@ function tailWindowEvents(events: readonly StrategyEvent[], lastIndex: number, l
   return events.filter((e) => e.barIndex >= minIdx && e.barIndex <= lastIndex);
 }
 
-function wireDeskWalletAddressBanner(): void {
+/** Short `abcd1234…wxyz5678` form for tight spaces (sidebar card); full address stays in `title`. */
+function shortenAddress(addr: string): string {
+  return addr.length <= 16 ? addr : `${addr.slice(0, 8)}…${addr.slice(-8)}`;
+}
+
+function wireDeskWalletAddressBanner(onBalance?: (lamports: number) => void): void {
   const el = document.getElementById("desk-wallet-address");
+  const sidebarAddrEl = document.getElementById("wallet-balance-address");
   // Bumped on every refresh so a slow RPC response for a since-replaced wallet can't clobber
   // the balance shown for the current one.
   let requestSeq = 0;
   const refresh = (): void => {
-    if (!el) {
-      return;
-    }
     requestSeq += 1;
     const seq = requestSeq;
     const kp = getSessionTradingKeypair();
     if (kp === null) {
-      el.hidden = true;
-      el.replaceChildren();
-      el.removeAttribute("title");
+      if (el) {
+        el.hidden = true;
+        el.replaceChildren();
+        el.removeAttribute("title");
+      }
+      if (sidebarAddrEl) {
+        sidebarAddrEl.hidden = true;
+        sidebarAddrEl.textContent = "";
+        sidebarAddrEl.removeAttribute("title");
+      }
       return;
     }
     const addr = kp.publicKey.toBase58();
-    const addrLine = document.createElement("span");
-    addrLine.textContent = `Desk wallet: ${addr}`;
-    const balanceLine = document.createElement("span");
-    balanceLine.className = "desk-wallet-banner__balance";
-    balanceLine.textContent = "Balance: loading…";
-    el.hidden = false;
-    el.title = addr;
-    el.replaceChildren(addrLine, document.createElement("br"), balanceLine);
+
+    let balanceLine: HTMLSpanElement | null = null;
+    if (el) {
+      const addrLine = document.createElement("span");
+      addrLine.textContent = `Desk wallet: ${addr}`;
+      balanceLine = document.createElement("span");
+      balanceLine.className = "desk-wallet-banner__balance";
+      balanceLine.textContent = "Balance: loading…";
+      el.hidden = false;
+      el.title = addr;
+      el.replaceChildren(addrLine, document.createElement("br"), balanceLine);
+    }
+    if (sidebarAddrEl) {
+      sidebarAddrEl.hidden = false;
+      sidebarAddrEl.textContent = shortenAddress(addr);
+      sidebarAddrEl.title = addr;
+    }
 
     void (async () => {
       try {
@@ -329,13 +380,18 @@ function wireDeskWalletAddressBanner(): void {
         if (seq !== requestSeq) {
           return;
         }
-        balanceLine.textContent = `Balance: ${(lamports / LAMPORTS_PER_SOL).toFixed(4)} SOL`;
+        if (balanceLine) {
+          balanceLine.textContent = `Balance: ${(lamports / LAMPORTS_PER_SOL).toFixed(4)} SOL`;
+        }
+        onBalance?.(lamports);
       } catch (e) {
         if (seq !== requestSeq) {
           return;
         }
-        balanceLine.textContent = "Balance: unavailable (RPC error)";
-        balanceLine.title = e instanceof Error ? e.message : String(e);
+        if (balanceLine) {
+          balanceLine.textContent = "Balance: unavailable (RPC error)";
+          balanceLine.title = e instanceof Error ? e.message : String(e);
+        }
       }
     })();
   };
@@ -452,9 +508,25 @@ async function mount(): Promise<void> {
           </div>
           <div id="crosshair-hud" class="crosshair-hud" aria-live="polite"></div>
           <div id="banner" style="display:none" class="banner"></div>
-          <div class="chart-wrap">
-            <div id="chart-overlay" class="chart-overlay visible">Loading 1m OHLCV…</div>
-            <div id="chart"></div>
+          <div class="desk-chart-row">
+            <div class="chart-wrap">
+              <div id="chart-overlay" class="chart-overlay visible">Loading 1m OHLCV…</div>
+              <div id="chart"></div>
+            </div>
+            <div class="wallet-balance-card" aria-label="Wallet balance by trade">
+              <div class="wallet-balance-card__head">
+                <span class="wallet-balance-card__title">Wallet balance</span>
+                <span id="wallet-balance-address" class="wallet-balance-card__address" hidden></span>
+                <div class="wallet-balance-card__stat-row">
+                  <span id="wallet-balance-current" class="wallet-balance-card__value">—</span>
+                  <span id="wallet-balance-delta" class="wallet-balance-card__delta" hidden></span>
+                </div>
+                <span id="wallet-balance-hint" class="wallet-balance-card__hint">By trade — hover a point for details</span>
+              </div>
+              <div id="wallet-balance-chart" class="wallet-balance-chart"></div>
+              <p id="wallet-balance-hud" class="hint wallet-balance-card__hud"></p>
+              <p id="wallet-balance-empty" class="hint wallet-balance-card__empty">No wallet balance yet — set a desk private key to see live history here.</p>
+            </div>
           </div>
         </div>
       </div>
@@ -539,7 +611,65 @@ async function mount(): Promise<void> {
       <footer class="stage8-footer" role="note">${STAGE8_EDUCATIONAL_FOOTER}</footer>
   `;
 
-  wireDeskWalletAddressBanner();
+  const walletBalanceChart = mountWalletBalanceChart(
+    $("#wallet-balance-chart"),
+    document.getElementById("wallet-balance-hud"),
+  );
+  /** Live balance from the wallet banner's own fetch (see {@link wireDeskWalletAddressBanner}) — the
+   * headline stat number; independent of the chart, which only plots actual trade fills. */
+  let liveWalletBalanceSol: number | null = null;
+
+  const refreshWalletBalanceCard = (): void => {
+    const events = tradeBalanceEvents(loadLocalPositions());
+    walletBalanceChart.setEvents(events);
+    const emptyEl = document.getElementById("wallet-balance-empty");
+    const currentEl = document.getElementById("wallet-balance-current");
+    const deltaEl = document.getElementById("wallet-balance-delta");
+    const chartEl = document.getElementById("wallet-balance-chart");
+    const hudEl = document.getElementById("wallet-balance-hud");
+    const hintEl = document.getElementById("wallet-balance-hint");
+
+    const lastEvent = events.length > 0 ? events[events.length - 1] : undefined;
+    const currentValue = liveWalletBalanceSol ?? lastEvent?.value ?? null;
+    if (currentEl) currentEl.textContent = currentValue === null ? "—" : `${currentValue.toFixed(4)} SOL`;
+
+    if (events.length === 0) {
+      if (chartEl) chartEl.hidden = true;
+      if (hudEl) hudEl.hidden = true;
+      if (deltaEl) deltaEl.hidden = true;
+      if (emptyEl) {
+        emptyEl.hidden = false;
+        emptyEl.textContent =
+          currentValue === null
+            ? "No wallet balance yet — set a desk private key to see live history here."
+            : "No trades yet — the chart fills in after the first BUY or SELL.";
+      }
+      if (hintEl) hintEl.textContent = "By trade — hover a point for details";
+      return;
+    }
+
+    if (emptyEl) emptyEl.hidden = true;
+    if (chartEl) chartEl.hidden = false;
+    if (hudEl) hudEl.hidden = false;
+    if (hintEl) hintEl.textContent = `${events.length} fill${events.length === 1 ? "" : "s"} — hover a point for details`;
+    if (deltaEl) {
+      const firstValue = events[0]!.value;
+      const diff = currentValue === null ? null : currentValue - firstValue;
+      if (diff !== null && Math.abs(diff) >= 0.0001) {
+        deltaEl.hidden = false;
+        deltaEl.textContent = `${diff > 0 ? "+" : ""}${diff.toFixed(4)} SOL`;
+        deltaEl.className = `wallet-balance-card__delta ${diff >= 0 ? "is-up" : "is-down"}`;
+      } else {
+        deltaEl.hidden = true;
+      }
+    }
+  };
+
+  wireDeskWalletAddressBanner((lamports) => {
+    liveWalletBalanceSol = lamports / LAMPORTS_PER_SOL;
+    refreshWalletBalanceCard();
+  });
+  refreshWalletBalanceCard();
 
   let deskStrategy: StrategyConfig = buildDeskStrategyConfig();
   applyVwmaPeriodInputs(
@@ -602,7 +732,10 @@ async function mount(): Promise<void> {
       tdTs.textContent = r.ts;
       const tdSide = document.createElement("td");
       tdSide.textContent = r.side;
-      tdSide.className = r.side === "BUY" ? "side-buy" : "side-sell";
+      // An errored fill is not "a sell that happened" or "a buy that happened" — the direction
+      // color (green/red, already reused by the Tx column's ok/err badge) would misleadingly
+      // read as a completed trade. Warning-colored side text flags it as needing attention instead.
+      tdSide.className = r.txStatus === "error" ? "side-warn" : r.side === "BUY" ? "side-buy" : "side-sell";
       const tdPair = document.createElement("td");
       tdPair.className = "pair-cell";
       tdPair.textContent = r.pair;
@@ -669,7 +802,7 @@ async function mount(): Promise<void> {
         if (key.length === 0) {
           return;
         }
-        void removePositionByKey(key).then(() => renderPositionsTableBody());
+        void removePositionByKey(key).then(() => onPositionsChanged());
       });
       tdActions.appendChild(delBtn);
       tr.append(tdId, tdTs, tdSide, tdPair, tdPool, tdBar, tdReason, tdTx, tdTxDetail, tdActions);
@@ -679,6 +812,12 @@ async function mount(): Promise<void> {
     if (clearAllBtn instanceof HTMLButtonElement) {
       clearAllBtn.disabled = n === 0;
     }
+  };
+
+  /** Positions table + wallet-balance chart both read from the same log — refresh together whenever it changes. */
+  const onPositionsChanged = (): void => {
+    renderPositionsTableBody();
+    refreshWalletBalanceCard();
   };
 
   /** Dedupe ARMED/INVALIDATED toasts across 60s polls (FSM replay repeats the same events). */
@@ -739,34 +878,48 @@ async function mount(): Promise<void> {
 
   // ── GeckoTerminal public rate-limit budget ──────────────────────────────────────────────────
   // The public API is ~10–30 req/min per IP, shared across ALL chart instances on this machine.
-  // To guarantee the IP never bursts past that, every instance spreads its one-poll-per-minute
-  // request evenly across the minute: with N instances, instance #i fires at offset i·(60s / N)
-  // and repeats every ~60 s. The same per-instance offset is reused for reconnect retries and
-  // post-429 resumes so those events never collapse every instance onto the same instant.
-  const POLL_WINDOW_MS = 60_000;
-  // Hard ceiling on auto-polling instances per IP — protects the budget if the fleet is bumped past
-  // what the public limit can absorb. Extra instances stay alive but require a manual Load press.
-  const MAX_AUTOPOLL_AGENTS = 8;
-  // Floor for the 429 cooldown when the server sends no Retry-After (~one poll window of breathing room).
-  const RATE_LIMIT_COOLDOWN_FLOOR_MS = 65_000;
+  // A FIXED 60s poll window scales total request rate linearly with fleet size: fine at 7
+  // instances (7 req/min), but at 10 that's exactly the documented floor with zero margin for a
+  // manual Load press, a reconnect burst, or the real limit being stricter than advertised — the
+  // fleet would sit right on the edge of 429s instead of safely under it.
+  //
+  // Instead, each instance's OWN poll interval stretches as the fleet grows so the FLEET-WIDE
+  // steady-state rate stays fixed at TARGET_TOTAL_REQ_PER_MIN regardless of N: at N=7 the window
+  // is still ~60s (unchanged); at N=10 it's ~75s; it keeps scaling for any future fleet size
+  // instead of quietly going over budget. Within that window, instance #i still fires at offset
+  // i·(window/N), so the request stream stays evenly spread, never bursty. The same per-instance
+  // offset is reused for reconnect retries and post-429 resumes so those never collapse every
+  // instance onto the same instant.
+  const BASE_POLL_WINDOW_MS = 60_000;
+  // Conservative fleet-wide ceiling — safely under the documented 10–30 req/min floor, leaving
+  // real headroom for manual Load presses, reconnects, and the limit being stricter in practice.
+  const TARGET_TOTAL_REQ_PER_MIN = 8;
+  // Sanity backstop only (guards a config typo, e.g. instance count set to 500 by mistake) — the
+  // self-scaling window above is what actually keeps any realistic fleet size under budget, so
+  // this is set far past any real fleet rather than silently going dark past 8 like before.
+  const MAX_AUTOPOLL_AGENTS = 60;
 
   const basePort = toPositiveInt(import.meta.env.VITE_CHART_WEB_BASE_PORT, 5713);
-  const instanceCount = toPositiveInt(import.meta.env.VITE_CHART_WEB_INSTANCE_COUNT, 7);
+  const instanceCount = toPositiveInt(import.meta.env.VITE_CHART_WEB_INSTANCE_COUNT, 10);
   const chartPort = toPositiveInt(import.meta.env.VITE_SIGNAL_HISTORY_ID, basePort);
   const agentIdx = Math.max(0, chartPort - basePort);
   const activeAgents = Math.max(1, Math.min(instanceCount, MAX_AUTOPOLL_AGENTS));
-  // Even spacing keeps the per-IP request stream smooth (e.g. 7 instances → one poll every ~8.6 s).
+  const POLL_WINDOW_MS = Math.max(
+    BASE_POLL_WINDOW_MS,
+    Math.ceil((BASE_POLL_WINDOW_MS * activeAgents) / TARGET_TOTAL_REQ_PER_MIN),
+  );
+  // Even spacing keeps the per-IP request stream smooth (e.g. 10 instances, ~75s window → one poll every ~7.5 s).
   const pollSpacingMs = Math.floor(POLL_WINDOW_MS / activeAgents);
   const agentOffsetMs = (agentIdx % activeAgents) * pollSpacingMs;
 
   /**
-   * How long to suppress auto-polls after a 429: honor the server's Retry-After when present, else a
-   * one-window floor — then add this instance's offset so resumes re-disperse instead of every
-   * instance retrying on the same instant.
+   * How long to suppress auto-polls after a 429: honor the server's Retry-After when present, else
+   * one full poll window (already sized for the current fleet) plus a small buffer — then add this
+   * instance's offset so resumes re-disperse instead of every instance retrying on the same instant.
    */
   const rateLimitCooldownMs = (e: unknown): number => {
     const retryAfter = rateLimitRetryAfterMs(e) ?? 0;
-    return Math.max(RATE_LIMIT_COOLDOWN_FLOOR_MS, retryAfter) + agentOffsetMs;
+    return Math.max(POLL_WINDOW_MS + 5_000, retryAfter) + agentOffsetMs;
   };
 
   let busy = false;
@@ -982,7 +1135,7 @@ async function mount(): Promise<void> {
       rehydrateOpenPositionFromLog(pool, loadLocalPositions());
       const agent = new SignalAgent({
         strategy: deskStrategy,
-        execution: createAutoSwapExecutionAdapter(lastPairLabel, pool, autoSwapDedupe, renderPositionsTableBody),
+        execution: createAutoSwapExecutionAdapter(lastPairLabel, pool, autoSwapDedupe, onPositionsChanged),
         executionHooksScope: "tail_bar_only",
         executionTailBarLookback: EXEC_SIGNAL_TAIL_LOOKBACK,
         log: () => {},
@@ -997,6 +1150,7 @@ async function mount(): Promise<void> {
       chartViewIndicators = res.indicators;
 
       candles.setData(toCandles(res.bars));
+      candles.setMarkers(toSignalMarkers(res.bars, res.strategyEvents));
       vol.setData(toVolume(res.bars));
       vwap.setData(toLine(res.bars, res.indicators.map((i) => i.vwap)));
       w3.setData(toLine(res.bars, res.indicators.map((i) => i.vwma3)));
@@ -1123,7 +1277,7 @@ async function mount(): Promise<void> {
 
       const agent = new SignalAgent({
         strategy: deskStrategy,
-        execution: createAutoSwapExecutionAdapter(label, pool, autoSwapDedupe, renderPositionsTableBody),
+        execution: createAutoSwapExecutionAdapter(label, pool, autoSwapDedupe, onPositionsChanged),
         executionHooksScope: "tail_bar_only",
         executionTailBarLookback: EXEC_SIGNAL_TAIL_LOOKBACK,
         log: () => {},
@@ -1143,6 +1297,7 @@ async function mount(): Promise<void> {
       chartViewIndicators = res.indicators;
 
       candles.setData(toCandles(res.bars));
+      candles.setMarkers(toSignalMarkers(res.bars, res.strategyEvents));
       vol.setData(toVolume(res.bars));
       vwap.setData(toLine(res.bars, res.indicators.map((i) => i.vwap)));
       w3.setData(toLine(res.bars, res.indicators.map((i) => i.vwma3)));
@@ -1180,20 +1335,23 @@ async function mount(): Promise<void> {
         rateLimitedUntilMs = Date.now() + cooldownMs;
         console.warn(`[chart-web] GeckoTerminal 429 — pausing automatic poll for ~${cooldownSecs} s.`);
       }
-      if (silent && chartPrimed) {
+      if (isRateLimit) {
+        // Never surface a 429 — it's expected under a shared-IP fleet and the cooldown above
+        // already handles recovery automatically; a banner here would just be alarming noise for
+        // something the user can't (and doesn't need to) do anything about. Console-only.
         showBanner("hidden", "");
-        if (!isRateLimit) {
-          console.warn("[chart-web] silent OHLCV refresh failed (will retry on next interval):", e);
+        if (chartPrimed) {
+          setChartOverlay(false);
         }
+        // else: leave whatever overlay is already showing (the default "Loading…" placeholder) —
+        // no rate-limit-specific text, so nothing 429-shaped is ever visible on screen.
+      } else if (silent && chartPrimed) {
+        showBanner("hidden", "");
+        console.warn("[chart-web] silent OHLCV refresh failed (will retry on next interval):", e);
         setChartOverlay(false);
       } else {
-        showBanner(isRateLimit ? "info" : "err", msg);
-        setChartOverlay(
-          true,
-          isRateLimit
-            ? `GeckoTerminal rate limited — automatic retry in ~${cooldownSecs} s. Press Load to retry now.`
-            : "Could not load OHLCV. See the banner above.",
-        );
+        showBanner("err", msg);
+        setChartOverlay(true, "Could not load OHLCV. See the banner above.");
       }
     } finally {
       busy = false;
@@ -1414,7 +1572,7 @@ async function mount(): Promise<void> {
         if (p) {
           rehydrateOpenPositionFromLog(p, loadLocalPositions());
         }
-        renderPositionsTableBody();
+        onPositionsChanged();
       });
     });
   }
@@ -1436,7 +1594,7 @@ async function mount(): Promise<void> {
       void clearAllPositions().then(() => {
         clearInMemoryOpenPositions();
         positionsPageIndex = 0;
-        renderPositionsTableBody();
+        onPositionsChanged();
       });
     });
   }
@@ -1469,7 +1627,7 @@ async function mount(): Promise<void> {
     if (p) {
       rehydrateOpenPositionFromLog(p, loadLocalPositions());
     }
-    renderPositionsTableBody();
+    onPositionsChanged();
   });
 
   // ── GeckoTerminal public rate-limit budget (fleet shape from PM2; see top of mount) ──────────
