@@ -59,7 +59,7 @@ import {
 } from "./deskVwmaConfig.js";
 import { setSignalAutoSolInputToEnvDefaults } from "./signalTradeAmount.js";
 import { setSessionPoolSwapTokenMint } from "./sessionPoolSwapMint.js";
-import { clearInMemoryOpenPositions, rehydrateOpenPositionFromLog } from "./sessionTradePairing.js";
+import { clearInMemoryOpenPositions, openPositionPoolCount, rehydrateOpenPositionFromLog } from "./sessionTradePairing.js";
 import { readDeskEnv } from "./chartWebEnv.js";
 import { mountWalletBalanceChart, tradeBalanceEvents } from "./walletBalanceChart.js";
 
@@ -891,9 +891,11 @@ async function mount(): Promise<void> {
   // offset is reused for reconnect retries and post-429 resumes so those never collapse every
   // instance onto the same instant.
   const BASE_POLL_WINDOW_MS = 60_000;
-  // Conservative fleet-wide ceiling — safely under the documented 10–30 req/min floor, leaving
-  // real headroom for manual Load presses, reconnects, and the limit being stricter in practice.
-  const TARGET_TOTAL_REQ_PER_MIN = 8;
+  // Conservative fleet-wide ceiling — well under the documented 10–30 req/min floor, leaving real
+  // headroom for manual Load presses, reconnects, history-scroll prefetches (see loadOlderChunk,
+  // which is NOT part of this budget — it's event-driven, not scheduled), and the real limit being
+  // stricter in practice than advertised (still 429'd at the old target of 8 with a 10-instance fleet).
+  const TARGET_TOTAL_REQ_PER_MIN = 5;
   // Sanity backstop only (guards a config typo, e.g. instance count set to 500 by mistake) — the
   // self-scaling window above is what actually keeps any realistic fleet size under budget, so
   // this is set far past any real fleet rather than silently going dark past 8 like before.
@@ -1182,12 +1184,13 @@ async function mount(): Promise<void> {
       if (/429|rate.?limit/i.test(errMsg)) {
         const cooldownMs = rateLimitCooldownMs(e);
         rateLimitedUntilMs = Date.now() + cooldownMs;
-        showBanner(
-          "err",
-          `GeckoTerminal rate limit hit while loading history. Auto-poll paused for ~${Math.round(cooldownMs / 1000)} s. Scroll back later or reduce running chart instances.`,
-        );
+        // Same rule as the main poll tick: never surface a 429 — this is a separate code path
+        // (history-scroll prefetch, not the scheduled poll) and was missed the first time around,
+        // which is exactly how a red "rate limit hit" banner could still show up here.
+        console.warn(`[chart-web] GeckoTerminal 429 while loading history — pausing for ~${Math.round(cooldownMs / 1000)} s.`);
+      } else {
+        console.warn("[chart-web] loading older OHLCV failed:", e);
       }
-      console.warn("[chart-web] loading older OHLCV failed:", e);
     } finally {
       historyBusy = false;
     }
@@ -1588,7 +1591,12 @@ async function mount(): Promise<void> {
       if (loadLocalPositions().length === 0) {
         return;
       }
-      if (!window.confirm("Delete all signal history rows? This cannot be undone.")) {
+      const openCount = openPositionPoolCount();
+      const warning =
+        openCount > 0
+          ? ` WARNING: ${openCount} pool${openCount === 1 ? " has" : "s have"} an open auto-bought position tracked — clearing forgets that tracking, so auto-SELL will no longer close ${openCount === 1 ? "it" : "them"} (you'll need to sell manually via the wallet panel, or reload without clearing to let it rehydrate).`
+          : "";
+      if (!window.confirm(`Delete all signal history rows? This cannot be undone.${warning}`)) {
         return;
       }
       void clearAllPositions().then(() => {

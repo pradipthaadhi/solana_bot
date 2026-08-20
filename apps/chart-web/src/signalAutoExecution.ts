@@ -275,6 +275,26 @@ function innerAutoAdapter(pairLabel: string, poolAddress: string, onPersisted: (
     },
     async onSignalExit(p: ExecutionSignalPayload) {
       const sellRef = peekOpenBuyTradeIdForPool(poolAddress);
+      if (sellRef.length === 0) {
+        // The strategy FSM re-evaluates FLAT/ARMED/LONG purely from chart data every tick, with
+        // no knowledge of whether the matching BUY actually landed on-chain. Without this guard,
+        // an exit cross after a BUY that errored (or already got sold) would still attempt a
+        // SELL — and `maybeSwap` only refuses on a literal zero token balance, so it would happily
+        // sell whatever balance happens to be sitting in the wallet (leftover from an earlier,
+        // unrelated position) instead of skipping. That's how BUY(error)->SELL(success) shows up
+        // in the log: a "successful" sell of tokens this signal never bought. Only sell a position
+        // auto-trading itself tracks as open, so BUY/SELL stays strictly paired: BUY1-SELL1-BUY2-SELL2.
+        const row = buildRow("SELL", pairLabel, poolAddress, p);
+        const finalRow: PositionSignalRow = {
+          ...row,
+          txStatus: "skipped",
+          txDetail: "No open position tracked for this pool — nothing this signal bought is still open, skipping SELL.",
+        };
+        await appendPosition(finalRow);
+        onPersisted();
+        chartToastInfo("SELL skipped (no open position)", finalRow.txDetail ?? "");
+        return;
+      }
       const row = buildRow("SELL", pairLabel, poolAddress, p, sellRef);
       const finalRow = await maybeSwap("SELL", row);
       if (finalRow.txStatus === "ok") {

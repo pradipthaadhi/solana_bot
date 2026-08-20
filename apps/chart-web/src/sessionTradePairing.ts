@@ -16,6 +16,16 @@ export function clearInMemoryOpenPositions(): void {
   openTradeIdByPool.clear();
 }
 
+/**
+ * Number of pools currently tracked as having an open (auto-bought, not yet auto-sold) position.
+ * Since {@link clearInMemoryOpenPositions} drops this tracking, and `onSignalExit` now refuses to
+ * sell an untracked pool (see signalAutoExecution.ts), callers should warn before clearing when
+ * this is non-zero — otherwise a real open position quietly stops being auto-sellable.
+ */
+export function openPositionPoolCount(): number {
+  return openTradeIdByPool.size;
+}
+
 export function newTradeId(): string {
   if (globalThis.crypto?.randomUUID) {
     return globalThis.crypto.randomUUID();
