@@ -8,6 +8,25 @@ import {
 
 const LS_KEY = "sol_bot_chart_vwma_periods_v1";
 
+/**
+ * Fleet-wide default VWMA periods, set once in `apps/chart-web/.env` (`VITE_VWMA_FAST` /
+ * `VITE_VWMA_MID` / `VITE_VWMA_SLOW`) rather than per-instance — every chart-web PM2 process loads
+ * the same shared `.env` as its base config (see vite.config.ts's `loadEnv`), so this applies
+ * uniformly across the fleet without needing to repeat it in each `chart-web-N.env`. Falls back to
+ * the library default (3/9/18) when unset or invalid. Only affects the *starting point* — a value
+ * a user explicitly sets via the "Apply indicators" UI is saved to localStorage and always wins
+ * over this from then on (see {@link loadSavedVwmaPeriods}), same as it already won over the
+ * hardcoded default before this existed.
+ */
+export function envDefaultVwmaPeriods(): VwmaPeriodTriple {
+  const parsed = parseVwmaPeriodInputs(
+    import.meta.env.VITE_VWMA_FAST ?? "",
+    import.meta.env.VITE_VWMA_MID ?? "",
+    import.meta.env.VITE_VWMA_SLOW ?? "",
+  );
+  return parsed.ok ? parsed.triple : DEFAULT_VWMA_PERIODS;
+}
+
 /** Clamp integers from DOM inputs into a valid triple. Defaults remain 3/9/18. */
 export function parseVwmaPeriodInputs(rawFast: string, rawMid: string, rawSlow: string):
   | { ok: true; triple: VwmaPeriodTriple }
@@ -42,11 +61,11 @@ export function loadSavedVwmaPeriods(): VwmaPeriodTriple {
   try {
     const raw = globalThis.localStorage?.getItem(LS_KEY);
     if (raw === null || raw.trim().length === 0) {
-      return DEFAULT_VWMA_PERIODS;
+      return envDefaultVwmaPeriods();
     }
     const o = JSON.parse(raw) as unknown;
     if (typeof o !== "object" || o === null) {
-      return DEFAULT_VWMA_PERIODS;
+      return envDefaultVwmaPeriods();
     }
     const r = o as Record<string, unknown>;
     const fast = r.fast;
@@ -60,12 +79,12 @@ export function loadSavedVwmaPeriods(): VwmaPeriodTriple {
       !Number.isInteger(mid) ||
       !Number.isInteger(slow)
     ) {
-      return DEFAULT_VWMA_PERIODS;
+      return envDefaultVwmaPeriods();
     }
     const parsed = parseVwmaPeriodInputs(String(fast), String(mid), String(slow));
-    return parsed.ok ? parsed.triple : DEFAULT_VWMA_PERIODS;
+    return parsed.ok ? parsed.triple : envDefaultVwmaPeriods();
   } catch {
-    return DEFAULT_VWMA_PERIODS;
+    return envDefaultVwmaPeriods();
   }
 }
 

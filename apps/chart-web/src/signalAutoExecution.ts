@@ -8,7 +8,7 @@ import {
   solPairSignalSellExactInTokenQuote,
   solPairSignalSellExactSolOutQuote,
 } from "@bot/execution/solPairSwapQuotes.js";
-import { Connection, LAMPORTS_PER_SOL } from "@solana/web3.js";
+import { Connection, LAMPORTS_PER_SOL, type PublicKey } from "@solana/web3.js";
 import { appendPosition, type PositionSignalRow } from "./positionsLog.js";
 import { readDeskEnv } from "./chartWebEnv.js";
 import { resolveJupiterApiBaseUrl } from "./jupiterApiBaseUrl.js";
@@ -21,6 +21,7 @@ import {
   peekOpenBuyTradeIdForPool,
   releaseOpenBuyIfMatches,
   tryReserveOpenBuyForPool,
+  ZERO_BALANCE_SELL_SKIP_DETAIL,
 } from "./sessionTradePairing.js";
 import { getSignalAutoTradeLamports } from "./signalTradeAmount.js";
 import { readWalletSplTokenBalanceRaw } from "./splTokenBalance.js";
@@ -40,6 +41,30 @@ async function sampleWalletBalanceSol(conn: Connection, owner: Parameters<Connec
   } catch {
     return undefined;
   }
+}
+
+/** Delay before the confirming re-read in {@link readConfirmedSplBalance} — long enough for a lagging RPC node/indexer to catch up to a just-confirmed swap. */
+const ZERO_BALANCE_CONFIRM_DELAY_MS = 4_000;
+
+/**
+ * A single `getParsedTokenAccountsByOwner` read can land on a different backend node than the one
+ * that just confirmed a swap (Connection objects here are constructed fresh each time, and most
+ * RPC providers — including load-balanced ones — don't guarantee read-your-writes across nodes),
+ * so it can observe a stale zero balance for a position that is genuinely still open. Treating a
+ * single such read as ground truth is dangerous here specifically: the result feeds
+ * stale-position reconciliation (see ZERO_BALANCE_SELL_SKIP_DETAIL / onSignalExit /
+ * tryReconcileStaleOpenPosition below), and a false "zero" there marks a REAL open position as
+ * closed without ever selling it — after which it becomes permanently unreachable by auto-trading.
+ * A non-zero first read returns immediately (nothing to confirm — a real balance is real); only a
+ * zero first read pays the extra delay for a second, confirming read.
+ */
+async function readConfirmedSplBalance(conn: Connection, owner: PublicKey, mintBase58: string): Promise<bigint> {
+  const first = await readWalletSplTokenBalanceRaw(conn, owner, mintBase58);
+  if (first !== 0n) {
+    return first;
+  }
+  await new Promise((resolve) => setTimeout(resolve, ZERO_BALANCE_CONFIRM_DELAY_MS));
+  return readWalletSplTokenBalanceRaw(conn, owner, mintBase58);
 }
 
 /** ExactOut (target SOL) can quote more x_token input than the wallet holds; sim then fails with SPL 0x1 "insufficient funds". */
@@ -174,12 +199,12 @@ function innerAutoAdapter(pairLabel: string, poolAddress: string, onPersisted: (
           ...(walletBalanceSol !== undefined ? { walletBalanceSol } : {}),
         };
       }
-      const splBalance = await readWalletSplTokenBalanceRaw(conn, kp.publicKey, tokenMint);
+      const splBalance = await readConfirmedSplBalance(conn, kp.publicKey, tokenMint);
       if (splBalance === 0n) {
         return {
           ...row,
           txStatus: "skipped",
-          txDetail: "No token balance to sell (desk wallet holds 0 of this mint).",
+          txDetail: ZERO_BALANCE_SELL_SKIP_DETAIL,
         };
       }
       const maxTokenIn = splBalance < deskEnv.maxInputRaw ? splBalance : deskEnv.maxInputRaw;
@@ -238,10 +263,52 @@ function innerAutoAdapter(pairLabel: string, poolAddress: string, onPersisted: (
     }
   };
 
+  /**
+   * The ledger thinks this pool has an open position, blocking new BUYs. Before accepting that,
+   * confirm against the real wallet balance — if it's genuinely zero, the position already closed
+   * by some means auto-trading never saw (a manual sell via the wallet panel, cross-instance desync
+   * from another chart-web tab trading the same wallet+pool, ...), and without this check the pool
+   * stays stuck until the next bearish exit cross fires a SELL that happens to hit the same
+   * reconciliation in onSignalExit — which, on a slow-moving pool, can mean days of skipped BUYs
+   * (exactly what a stuck pool's signal history looks like). Checking here recovers on the very
+   * next BUY attempt instead. Best-effort: any failure (no key, no mint, RPC error) just leaves the
+   * existing "open" tracking in place — onSignalExit's reconciliation still catches it eventually.
+   */
+  const tryReconcileStaleOpenPosition = async (): Promise<boolean> => {
+    const kp = getSessionTradingKeypair();
+    if (kp === null) {
+      return false;
+    }
+    const tokenMint = getSessionPoolSwapTokenMint(deskEnv.tokenMint).trim();
+    if (tokenMint.length === 0) {
+      return false;
+    }
+    let splBalance: bigint;
+    try {
+      const conn = new Connection(deskEnv.rpcUrl, { commitment: "confirmed" });
+      splBalance = await readConfirmedSplBalance(conn, kp.publicKey, tokenMint);
+    } catch {
+      return false;
+    }
+    if (splBalance !== 0n) {
+      return false;
+    }
+    onSellFilledPool(poolAddress);
+    chartToastInfo(
+      "Stale position cleared",
+      "Wallet balance was already zero — released the tracked open position for this pool so this BUY can proceed.",
+    );
+    return true;
+  };
+
   return {
     async onSignalEntry(p: ExecutionSignalPayload) {
       const buyId = newTradeId();
-      if (!tryReserveOpenBuyForPool(poolAddress, buyId)) {
+      let reserved = tryReserveOpenBuyForPool(poolAddress, buyId);
+      if (!reserved && (await tryReconcileStaleOpenPosition())) {
+        reserved = tryReserveOpenBuyForPool(poolAddress, buyId);
+      }
+      if (!reserved) {
         const row = buildRow("BUY", pairLabel, poolAddress, p, buyId);
         const finalRow: PositionSignalRow = {
           ...row,
@@ -296,9 +363,28 @@ function innerAutoAdapter(pairLabel: string, poolAddress: string, onPersisted: (
         return;
       }
       const row = buildRow("SELL", pairLabel, poolAddress, p, sellRef);
-      const finalRow = await maybeSwap("SELL", row);
-      if (finalRow.txStatus === "ok") {
+      const swapResultRow = await maybeSwap("SELL", row);
+      let finalRow = swapResultRow;
+      if (swapResultRow.txStatus === "ok") {
         onSellFilledPool(poolAddress);
+      } else if (swapResultRow.txStatus === "skipped" && swapResultRow.txDetail === ZERO_BALANCE_SELL_SKIP_DETAIL) {
+        // The ledger says this pool has an open position (we have a sellRef); the wallet's actual
+        // on-chain balance says otherwise. That can only mean the position closed by some means
+        // auto-trading never saw — a manual sell via the wallet panel, a transfer out, or a BUY that
+        // looked "ok" but never actually landed tokens — and none of those clear openTradeIdByPool,
+        // because only a successful auto-SELL does. Left alone, this pool is stuck forever: every
+        // future BUY skips ("Open position already...") and every future SELL skips the same way,
+        // in a loop that never self-corrects. Reconcile now — the zero balance is ground truth, so
+        // treat the position as closed and release the slot, exactly as if the sell had succeeded.
+        onSellFilledPool(poolAddress);
+        finalRow = {
+          ...swapResultRow,
+          txDetail: `${swapResultRow.txDetail} Auto-trading had this pool tracked as open — since the wallet holds none of this token, the position is now treated as closed so future BUY signals can fire again.`,
+        };
+        chartToastInfo(
+          "Stale position cleared",
+          "Wallet balance was already zero — released the tracked open position for this pool so auto-BUY can resume.",
+        );
       }
       await appendPosition(finalRow);
       onPersisted();
@@ -314,6 +400,10 @@ function innerAutoAdapter(pairLabel: string, poolAddress: string, onPersisted: (
 
 /**
  * Deduped ENTRY/EXIT hooks: notify, persist row with tx outcome, optional Jupiter broadcast when policy allows.
+ * `dedupeSeen` is shared (and scoped by pool below) across every pool the user loads into this
+ * instance over its lifetime — see createDedupingExecutionAdapter's `scope` doc comment for why
+ * that scoping matters: without it, switching pools in one tab could silently swallow a real
+ * signal whose bar timestamp happens to collide with one already seen from a previous pool.
  */
 export function createAutoSwapExecutionAdapter(
   pairLabel: string,
@@ -321,5 +411,5 @@ export function createAutoSwapExecutionAdapter(
   dedupeSeen: Set<string>,
   onPersisted: () => void,
 ): ExecutionAdapter {
-  return createDedupingExecutionAdapter(innerAutoAdapter(pairLabel, poolAddress, onPersisted), dedupeSeen);
+  return createDedupingExecutionAdapter(innerAutoAdapter(pairLabel, poolAddress, onPersisted), dedupeSeen, poolAddress);
 }

@@ -402,7 +402,7 @@ export default defineConfig(({ mode }) => {
     typeof deskPrivateKeyFromShell === "string" ? deskPrivateKeyFromShell : (fileEnv.VITE_DESK_PRIVATE_KEY ?? "");
 
   const viteSignalHistoryId = resolveSignalHistoryId(fileEnv);
-  const viteInstanceCount = resolvePositiveIntEnv(fileEnv, "CHART_WEB_INSTANCE_COUNT", 10);
+  const viteInstanceCount = resolvePositiveIntEnv(fileEnv, "CHART_WEB_INSTANCE_COUNT", 5);
   const viteBasePort = resolvePositiveIntEnv(fileEnv, "CHART_WEB_BASE_PORT", 5713);
 
   const jupiterTargetRaw =

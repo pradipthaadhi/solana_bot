@@ -30,6 +30,15 @@ interface ImportMetaEnv {
   readonly VITE_CHART_WEB_INSTANCE_COUNT?: string;
   /** Lowest listen port in the fleet (PM2 `CHART_WEB_BASE_PORT`); `port - basePort` = this agent's index. */
   readonly VITE_CHART_WEB_BASE_PORT?: string;
+  /**
+   * Fleet-wide default VWMA fast/mid/slow periods (must satisfy fast < mid < slow), set once in
+   * `apps/chart-web/.env` rather than per-instance. Only the starting point for a fresh browser
+   * with nothing saved yet — a period set via the desk's "Apply indicators" UI is saved to
+   * localStorage and always wins over this afterward. Falls back to 3/9/18 if unset or invalid.
+   */
+  readonly VITE_VWMA_FAST?: string;
+  readonly VITE_VWMA_MID?: string;
+  readonly VITE_VWMA_SLOW?: string;
 }
 
 interface ImportMeta {

@@ -9,11 +9,55 @@
 
 import type { PositionSignalRow } from "./positionsLog.js";
 
+/**
+ * Exact text `signalAutoExecution.ts` uses when a SELL is skipped because the wallet's real
+ * on-chain balance for the tracked mint is confirmed zero. Lives here (not in
+ * signalAutoExecution.ts, which imports this module) so {@link rehydrateOpenPositionFromLog} can
+ * recognize it too without a circular import. A confirmed-zero balance is ground truth that a
+ * tracked position already closed by some means auto-trading never saw (manual sell, cross-instance
+ * desync, ...) — both the live path (onSignalExit) and log replay (rehydrate) treat it as a close.
+ */
+export const ZERO_BALANCE_SELL_SKIP_DETAIL = "No token balance to sell (desk wallet holds 0 of this mint).";
+
 const openTradeIdByPool = new Map<string, string>();
+
+const RESET_WATERMARK_LS_KEY = "sol_bot_trade_pairing_reset_at_v1";
+
+function loadResetWatermark(): string | null {
+  try {
+    const raw = globalThis.localStorage?.getItem(RESET_WATERMARK_LS_KEY);
+    return raw && raw.trim().length > 0 ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveResetWatermark(iso: string): void {
+  try {
+    globalThis.localStorage?.setItem(RESET_WATERMARK_LS_KEY, iso);
+  } catch {
+    /* private mode */
+  }
+}
 
 /** After clearing persisted positions, drop in-memory open slots (avoids a stuck "already open" guard). */
 export function clearInMemoryOpenPositions(): void {
   openTradeIdByPool.clear();
+}
+
+/**
+ * Manually reset open-position tracking for every pool, "as of now" — the "Start New" button in
+ * the signal-history UI. Unlike {@link clearInMemoryOpenPositions} (paired with deleting the log
+ * in "Clear all"), this deliberately does NOT touch any persisted row — every previous BUY/SELL
+ * stays in the history for the record. What it also does, which a bare Map.clear() would not:
+ * records a watermark so a subsequent {@link rehydrateOpenPositionFromLog} (every tick/reload)
+ * can't just reconstruct the exact same "open" state from that preserved pre-reset history and
+ * silently undo the reset — rows at or before this instant are excluded from that replay from now
+ * on. Trading state starts flat; the audit trail does not.
+ */
+export function resetTradePairingTracking(): void {
+  openTradeIdByPool.clear();
+  saveResetWatermark(new Date().toISOString());
 }
 
 /**
@@ -116,11 +160,22 @@ export function rehydrateOpenPositionFromLog(poolAddress: string, rows: readonly
   if (hasOpenPositionForPool(poolAddress)) {
     return;
   }
+  const watermark = loadResetWatermark();
   const forPool = rows
     .filter((r) => r.pool.trim() === k)
+    // A "Start New" reset means "ignore everything up to and including this instant" — rows at or
+    // before the watermark must not resurrect pre-reset tracking state.
+    .filter((r) => watermark === null || r.ts > watermark)
     .sort((a, b) => a.ts.localeCompare(b.ts));
   let unclosed: string | undefined;
   for (const r of forPool) {
+    // A confirmed-zero-balance SELL skip for the currently-tracked buy closes it exactly like a
+    // successful SELL would — see ZERO_BALANCE_SELL_SKIP_DETAIL. Checked before the `txStatus
+    // !== "ok"` filter below, since this row's status is "skipped", not "ok".
+    if (r.side === "SELL" && r.txDetail === ZERO_BALANCE_SELL_SKIP_DETAIL && r.tradeId === unclosed) {
+      unclosed = undefined;
+      continue;
+    }
     if (r.txStatus !== "ok" || r.tradeId === undefined || r.tradeId.length === 0) {
       continue;
     }

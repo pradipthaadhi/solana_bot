@@ -221,6 +221,86 @@ describe("executeJupiterSwap (Stage 5.4–5.5)", () => {
     expect(res.signature).toBe("sig111");
   });
 
+  it("recovers a landed tx even when getBlockHeight races ahead of getSignatureStatuses", async () => {
+    // getBlockHeight already reports past lastValidBlockHeight on the very first poll, which
+    // would previously throw TransactionExpiredBlockheightExceededError immediately — even though
+    // getSignatureStatuses (checked here) shows the transaction actually landed and confirmed.
+    const kp = Keypair.generate();
+    vi.spyOn(jupiter, "fetchJupiterQuote").mockResolvedValue({ inAmount: "100" });
+    vi.spyOn(jupiter, "fetchJupiterSwapTransaction").mockResolvedValue({ swapTransaction: unsignedSwapTxB64(kp) });
+
+    const signTransaction = async (tx: VersionedTransaction) => {
+      tx.sign([kp]);
+      return tx;
+    };
+
+    const conn = {
+      getSlot: vi.fn().mockResolvedValue(123),
+      getLatestBlockhash: vi.fn().mockResolvedValue({ blockhash: "11111111111111111111111111111111", lastValidBlockHeight: 99 }),
+      simulateTransaction: vi.fn().mockResolvedValue({ value: { err: null, logs: [] }, context: { slot: 1 } }),
+      getBlockHeight: vi.fn().mockResolvedValue(150), // already past lastValidBlockHeight (99)
+      getSignatureStatuses: vi.fn().mockResolvedValue({
+        context: { slot: 2 },
+        value: [{ err: null, confirmationStatus: "confirmed" as const }],
+      }),
+      sendRawTransaction: vi.fn().mockResolvedValue("sig222"),
+    } as unknown as Connection;
+
+    const res = await executeJupiterSwap({
+      connection: conn,
+      userPublicKeyBase58: kp.publicKey.toBase58(),
+      quoteParams: {
+        inputMint: "So11111111111111111111111111111111111111112",
+        outputMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        amount: 100n,
+        slippageBps: 50,
+      },
+      rails: { killSwitchEngaged: false, maxInputRaw: 100n },
+      signTransaction,
+      simulateOnly: false,
+      broadcast: { broadcast: true, skipPreflight: true, commitment: "processed" },
+    });
+
+    expect(res.signature).toBe("sig222");
+  });
+
+  it("still throws expired when the blockheight race is real (signature never found)", async () => {
+    const kp = Keypair.generate();
+    vi.spyOn(jupiter, "fetchJupiterQuote").mockResolvedValue({ inAmount: "100" });
+    vi.spyOn(jupiter, "fetchJupiterSwapTransaction").mockResolvedValue({ swapTransaction: unsignedSwapTxB64(kp) });
+
+    const signTransaction = async (tx: VersionedTransaction) => {
+      tx.sign([kp]);
+      return tx;
+    };
+
+    const conn = {
+      getSlot: vi.fn().mockResolvedValue(123),
+      getLatestBlockhash: vi.fn().mockResolvedValue({ blockhash: "11111111111111111111111111111111", lastValidBlockHeight: 99 }),
+      simulateTransaction: vi.fn().mockResolvedValue({ value: { err: null, logs: [] }, context: { slot: 1 } }),
+      getBlockHeight: vi.fn().mockResolvedValue(150),
+      getSignatureStatuses: vi.fn().mockResolvedValue({ context: { slot: 2 }, value: [null] }),
+      sendRawTransaction: vi.fn().mockResolvedValue("sig333"),
+    } as unknown as Connection;
+
+    await expect(
+      executeJupiterSwap({
+        connection: conn,
+        userPublicKeyBase58: kp.publicKey.toBase58(),
+        quoteParams: {
+          inputMint: "So11111111111111111111111111111111111111112",
+          outputMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          amount: 100n,
+          slippageBps: 50,
+        },
+        rails: { killSwitchEngaged: false, maxInputRaw: 100n },
+        signTransaction,
+        simulateOnly: false,
+        broadcast: { broadcast: true, skipPreflight: true, commitment: "processed" },
+      }),
+    ).rejects.toThrow(/block height exceeded|expired/i);
+  });
+
   it("MODE=paper blocks broadcast before signing (Stage 6)", async () => {
     vi.spyOn(jupiter, "fetchJupiterQuote").mockResolvedValue({ inAmount: "100" });
     vi.spyOn(jupiter, "fetchJupiterSwapTransaction").mockResolvedValue({ swapTransaction: sampleSignedSwapTxB64() });

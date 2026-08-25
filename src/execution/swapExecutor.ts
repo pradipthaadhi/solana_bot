@@ -104,6 +104,24 @@ async function confirmSignatureHttpPolling(
   while (Date.now() - start < timeoutMs) {
     const height = await connection.getBlockHeight(commitment);
     if (height > lastValidBlockHeight) {
+      // The signature can still have landed in the very last eligible block even though this
+      // loop iteration's height check raced ahead of it — getBlockHeight and getSignatureStatuses
+      // are two independent RPC calls, not one atomic read. Reporting "expired" here for a
+      // transaction that actually landed would surface as a plain `txStatus: "error"` to callers
+      // (see signalAutoExecution.ts), which release/discard position tracking as if nothing
+      // happened — opening the door to a silent double-BUY on the next signal. One last
+      // signature-status check before giving up: if it's actually there, trust that over the
+      // height race.
+      const finalCheck = await connection.getSignatureStatuses([signature], { searchTransactionHistory: true });
+      const finalSt = finalCheck.value[0];
+      if (finalSt != null) {
+        if (finalSt.err != null) {
+          return { context: { slot: finalCheck.context.slot }, value: { err: finalSt.err } };
+        }
+        if (signatureStatusMeetsCommitment(finalSt.confirmationStatus, commitment)) {
+          return { context: { slot: finalCheck.context.slot }, value: { err: null } };
+        }
+      }
       throw new TransactionExpiredBlockheightExceededError(signature);
     }
     const res = await connection.getSignatureStatuses([signature], { searchTransactionHistory: true });

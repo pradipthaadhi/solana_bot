@@ -40,6 +40,7 @@ import {
 } from "./chartToaster.js";
 import { notifyDesktop, requestNotifyPermission } from "./notify.js";
 import { DEFAULT_DEMO_PAIR_LABEL, DEFAULT_DEMO_POOL_ADDRESS } from "./defaults.js";
+import { loadLastPoolAddress, saveLastPoolAddress } from "./lastPoolAddress.js";
 import {
   downloadPositionsTxt,
   clearAllPositions,
@@ -47,6 +48,7 @@ import {
   positionRowKey,
   removePositionByKey,
   syncPositionsFromServer,
+  type PositionSignalRow,
 } from "./positionsLog.js";
 import { runFirstVisitIntro } from "./firstVisitIntro.js";
 import { createAutoSwapExecutionAdapter } from "./signalAutoExecution.js";
@@ -54,12 +56,18 @@ import { getSessionTradingKeypair, initDeskTradingKeyFromEnv } from "./sessionTr
 import {
   applyVwmaPeriodInputs,
   buildDeskStrategyConfig,
+  envDefaultVwmaPeriods,
   parseVwmaPeriodInputs,
   saveVwmaPeriods,
 } from "./deskVwmaConfig.js";
 import { setSignalAutoSolInputToEnvDefaults } from "./signalTradeAmount.js";
 import { setSessionPoolSwapTokenMint } from "./sessionPoolSwapMint.js";
-import { clearInMemoryOpenPositions, openPositionPoolCount, rehydrateOpenPositionFromLog } from "./sessionTradePairing.js";
+import {
+  clearInMemoryOpenPositions,
+  openPositionPoolCount,
+  rehydrateOpenPositionFromLog,
+  resetTradePairingTracking,
+} from "./sessionTradePairing.js";
 import { readDeskEnv } from "./chartWebEnv.js";
 import { mountWalletBalanceChart, tradeBalanceEvents } from "./walletBalanceChart.js";
 
@@ -410,7 +418,11 @@ async function mount(): Promise<void> {
   }
   const params = new URLSearchParams(window.location.search);
   const fromUrl = params.get("pool")?.trim();
-  const initialPool = fromUrl && fromUrl.length > 0 ? fromUrl : DEFAULT_DEMO_POOL_ADDRESS;
+  const rememberedPool = loadLastPoolAddress();
+  // Priority: an explicit ?pool= link always wins (for sharing a specific pool); otherwise
+  // restore whatever pool last actually loaded in this browser; only fall back to the demo
+  // pool on a genuinely first-ever visit with nothing remembered.
+  const initialPool = fromUrl && fromUrl.length > 0 ? fromUrl : (rememberedPool ?? DEFAULT_DEMO_POOL_ADDRESS);
 
   const app = $("#app");
   app.innerHTML = `
@@ -504,7 +516,7 @@ async function mount(): Promise<void> {
               <input id="vwma-slow" class="vwma-period-input" type="number" min="1" max="500" step="1" required />
             </label>
             <button type="button" id="btn-vwma-apply" class="btn-vwma-apply">Apply indicators</button>
-            <p class="hint vwma-periods-hint">Defaults 3 / 9 / 18. Require fast &lt; mid &lt; slow. Stored in this browser.</p>
+            <p id="vwma-periods-hint" class="hint vwma-periods-hint">Defaults 3 / 9 / 18. Require fast &lt; mid &lt; slow. Stored in this browser.</p>
           </div>
           <div id="crosshair-hud" class="crosshair-hud" aria-live="polite"></div>
           <div id="banner" style="display:none" class="banner"></div>
@@ -565,17 +577,20 @@ async function mount(): Promise<void> {
         <div class="signal-log-head">
           <h2 class="signal-log-title">Signal history</h2>
           <div class="signal-log-actions">
+            <button id="btn-positions-start-new" type="button">Start New</button>
             <button id="btn-positions-refresh" type="button">Sync file</button>
             <button id="btn-positions-export" type="button">Download signal history (.txt)</button>
           </div>
         </div>
-        <p class="hint signal-log-hint">Newest first, <b>15 rows per page</b>. <b>Trade ID</b> is unique per BUY; the matching SELL reuses that id. <b>Tx</b> shows on-chain outcome (success / error / skipped). Per-row trash; header clears the full log. <code>npm run chart:dev</code> syncs to <code>positions-&lt;port&gt;.txt</code> under <code>apps/chart-web/</code> (same port as <code>CHART_WEB_PORT</code>; one file per PM2 process); otherwise <b>Download</b> saves the list.</p>
+        <p class="hint signal-log-hint">Sorted by most recently updated (falls back to created, then signal time), <b>15 rows per page</b>. <b>Trade ID</b> is unique per BUY; the matching SELL reuses that id. <b>Tx</b> shows on-chain outcome (success / error / skipped). <b>Start New</b> resets open-position tracking to flat without deleting any history — use it if a pool's tracking looks stuck and you've confirmed the wallet is actually empty of it. Per-row trash; header clears the full log. <code>npm run chart:dev</code> syncs to <code>positions-&lt;port&gt;.txt</code> under <code>apps/chart-web/</code> (same port as <code>CHART_WEB_PORT</code>; one file per PM2 process); otherwise <b>Download</b> saves the list.</p>
         <div class="table-scroll">
           <table class="positions-table" aria-label="Historical BUY and SELL signals">
             <thead>
               <tr>
                 <th>Trade ID</th>
                 <th>Time (UTC)</th>
+                <th>Created (UTC)</th>
+                <th>Updated (UTC)</th>
                 <th>Side</th>
                 <th>Pair</th>
                 <th>Pool</th>
@@ -677,11 +692,19 @@ async function mount(): Promise<void> {
     $("#vwma-mid") as HTMLInputElement,
     $("#vwma-slow") as HTMLInputElement,
   );
+  const vwmaPeriodsHintEl = document.getElementById("vwma-periods-hint");
+  if (vwmaPeriodsHintEl) {
+    const envDefault = envDefaultVwmaPeriods();
+    vwmaPeriodsHintEl.textContent = `Defaults ${envDefault.fast} / ${envDefault.mid} / ${envDefault.slow}. Require fast < mid < slow. Stored in this browser.`;
+  }
 
   runFirstVisitIntro();
 
   /** 0-based; page 0 = newest 15. Clamped in {@link renderPositionsTableBody}. */
   let positionsPageIndex = 0;
+
+  /** updatedAt if set, else createdAt, else `ts` — rows logged before these fields existed still sort sensibly. */
+  const positionSortKey = (r: PositionSignalRow): string => r.updatedAt || r.createdAt || r.ts;
 
   const renderPositionsTableBody = (): void => {
     const tbody = document.getElementById("positions-tbody");
@@ -689,7 +712,7 @@ async function mount(): Promise<void> {
       return;
     }
     tbody.replaceChildren();
-    const allRows = loadLocalPositions().sort((a, b) => b.ts.localeCompare(a.ts));
+    const allRows = loadLocalPositions().sort((a, b) => positionSortKey(b).localeCompare(positionSortKey(a)));
     const n = allRows.length;
     const totalPages = n === 0 ? 1 : Math.ceil(n / POSITIONS_PAGE_SIZE);
     positionsPageIndex = Math.max(0, Math.min(positionsPageIndex, totalPages - 1));
@@ -730,6 +753,18 @@ async function mount(): Promise<void> {
       const tdTs = document.createElement("td");
       tdTs.className = "time-cell";
       tdTs.textContent = r.ts;
+      const tdCreatedAt = document.createElement("td");
+      tdCreatedAt.className = "time-cell";
+      tdCreatedAt.textContent = r.createdAt ?? "—";
+      if (!r.createdAt) {
+        tdCreatedAt.classList.add("tx-missing");
+      }
+      const tdUpdatedAt = document.createElement("td");
+      tdUpdatedAt.className = "time-cell";
+      tdUpdatedAt.textContent = r.updatedAt ?? "—";
+      if (!r.updatedAt) {
+        tdUpdatedAt.classList.add("tx-missing");
+      }
       const tdSide = document.createElement("td");
       tdSide.textContent = r.side;
       // An errored fill is not "a sell that happened" or "a buy that happened" — the direction
@@ -805,7 +840,7 @@ async function mount(): Promise<void> {
         void removePositionByKey(key).then(() => onPositionsChanged());
       });
       tdActions.appendChild(delBtn);
-      tr.append(tdId, tdTs, tdSide, tdPair, tdPool, tdBar, tdReason, tdTx, tdTxDetail, tdActions);
+      tr.append(tdId, tdTs, tdCreatedAt, tdUpdatedAt, tdSide, tdPair, tdPool, tdBar, tdReason, tdTx, tdTxDetail, tdActions);
       tbody.appendChild(tr);
     }
     const clearAllBtn = document.getElementById("btn-positions-clear-all");
@@ -838,15 +873,13 @@ async function mount(): Promise<void> {
   /** After first successful OHLCV paint, interval refreshes run silently (no full-screen loading flash). */
   let chartPrimed = false;
 
-  if (initialPool === DEFAULT_DEMO_POOL_ADDRESS) {
+  if (!fromUrl && !rememberedPool) {
+    // Genuinely first-ever visit in this browser — nothing in the URL, nothing remembered yet.
     pair.textContent = `${DEFAULT_DEMO_PAIR_LABEL} · 1m · pool ${initialPool}`;
     subpair.textContent = "Demo pool — replace the address above for your pair.";
-  } else if (fromUrl && fromUrl.length > 0) {
-    pair.textContent = `…/… · 1m · pool ${initialPool}`;
-    subpair.textContent = "Loading pair metadata…";
   } else {
-    pair.textContent = `· 1m · pool ${initialPool}`;
-    subpair.textContent = "Paste a Solana pair/pool address or use the demo pool above.";
+    pair.textContent = `…/… · 1m · pool ${initialPool}`;
+    subpair.textContent = fromUrl ? "Loading pair metadata…" : "Restored your last pool — loading…";
   }
   const chartEl = $("#chart");
   const chartOverlay = $("#chart-overlay");
@@ -902,7 +935,7 @@ async function mount(): Promise<void> {
   const MAX_AUTOPOLL_AGENTS = 60;
 
   const basePort = toPositiveInt(import.meta.env.VITE_CHART_WEB_BASE_PORT, 5713);
-  const instanceCount = toPositiveInt(import.meta.env.VITE_CHART_WEB_INSTANCE_COUNT, 10);
+  const instanceCount = toPositiveInt(import.meta.env.VITE_CHART_WEB_INSTANCE_COUNT, 5);
   const chartPort = toPositiveInt(import.meta.env.VITE_SIGNAL_HISTORY_ID, basePort);
   const agentIdx = Math.max(0, chartPort - basePort);
   const activeAgents = Math.max(1, Math.min(instanceCount, MAX_AUTOPOLL_AGENTS));
@@ -969,10 +1002,19 @@ async function mount(): Promise<void> {
   });
   vol.priceScale().applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
 
-  const vwap = chart.addLineSeries({ color: "#e7e9ee", lineWidth: 2, title: "VWAP", priceFormat: deskPriceFormat5 });
-  const w3 = chart.addLineSeries({ color: "#2962ff", lineWidth: 1, title: "VWMA", priceFormat: deskPriceFormat5 });
-  const w9 = chart.addLineSeries({ color: "#9945ff", lineWidth: 1, title: "VWMA", priceFormat: deskPriceFormat5 });
-  const w18 = chart.addLineSeries({ color: "#14f195", lineWidth: 1, title: "VWMA", priceFormat: deskPriceFormat5 });
+  // lastValueVisible/priceLineVisible default to true on every line series, AND a non-empty
+  // `title` renders its own on-chart badge independently of lastValueVisible (per lightweight-charts:
+  // title "will be displayed on the label next to the last value label" — setting lastValueVisible
+  // false alone does NOT remove it). With VWAP + three VWMAs clustered near the current price, their
+  // titled badges ("VWMA 3" / "VWMA 9" / "VWMA 18") stack up at the right price-axis edge and widen
+  // enough to spill leftward over the most recent real candles, hiding exactly the bars a trader most
+  // wants to see. The values are already shown, uncluttered, in the VWAP/VWMA metric cards above the
+  // chart, so all three (last-value label, price line, on-chart title badge) are pure redundancy here.
+  const deskOverlayLineOptions = { lastValueVisible: false, priceLineVisible: false, title: "" } as const;
+  const vwap = chart.addLineSeries({ color: "#e7e9ee", lineWidth: 2, priceFormat: deskPriceFormat5, ...deskOverlayLineOptions });
+  const w3 = chart.addLineSeries({ color: "#2962ff", lineWidth: 1, priceFormat: deskPriceFormat5, ...deskOverlayLineOptions });
+  const w9 = chart.addLineSeries({ color: "#9945ff", lineWidth: 1, priceFormat: deskPriceFormat5, ...deskOverlayLineOptions });
+  const w18 = chart.addLineSeries({ color: "#14f195", lineWidth: 1, priceFormat: deskPriceFormat5, ...deskOverlayLineOptions });
 
   const syncDeskVwmaPresentation = (p: { fast: number; mid: number; slow: number }): void => {
     const lf = document.getElementById("metric-label-vwma-fast");
@@ -987,9 +1029,6 @@ async function mount(): Promise<void> {
     if (ls) {
       ls.textContent = `VWMA (${p.slow})`;
     }
-    w3.applyOptions({ title: `VWMA ${p.fast}` });
-    w9.applyOptions({ title: `VWMA ${p.mid}` });
-    w18.applyOptions({ title: `VWMA ${p.slow}` });
   };
   syncDeskVwmaPresentation(deskStrategy.vwmaPeriods);
 
@@ -1262,11 +1301,26 @@ async function mount(): Promise<void> {
         sessionMergePool = pool;
         sessionBars = [];
         historyExhausted = false;
+        // Remember this pool so a browser refresh restores it instead of falling back to the
+        // demo pool. Only reached once bars.length > 0 above, so a typo/invalid pool is never
+        // persisted — only a pool that actually returned real candles.
+        saveLastPoolAddress(pool);
+        // Genuinely switching pools — the previous pool's resolved mint (if any) no longer applies.
+        setSessionPoolSwapTokenMint(null);
       }
       sessionBars = mergeTailRefresh(sessionBars, bars);
 
       const altMint = resolveAltTokenMintForSolPool(meta);
-      setSessionPoolSwapTokenMint(altMint);
+      if (altMint !== null) {
+        // Only update on a resolved value — matches loadOlderChunk's existing guard below.
+        // GeckoTerminal meta can come back ambiguous/incomplete on a single tick (parseMeta
+        // returns {} rather than throwing); unconditionally forwarding that null here would wipe
+        // out an already-correctly-resolved mint for the SAME pool, and every balance check that
+        // follows (including stale-position reconciliation in signalAutoExecution.ts) would then
+        // silently check the wrong token and misfire — a bad tick, not a pool change, must not
+        // erase a good value.
+        setSessionPoolSwapTokenMint(altMint);
+      }
 
       const label = `${meta.baseSymbol ?? "BASE"}/${meta.quoteSymbol ?? "QUOTE"}`;
       lastPairLabel = label;
@@ -1567,6 +1621,28 @@ async function mount(): Promise<void> {
     });
   });
 
+  const btnPosStartNew = document.getElementById("btn-positions-start-new");
+  if (btnPosStartNew) {
+    btnPosStartNew.addEventListener("click", () => {
+      const openCount = openPositionPoolCount();
+      const warning =
+        openCount > 0
+          ? ` ${openCount} pool${openCount === 1 ? " currently has" : "s currently have"} an open auto-bought position tracked — this also forgets that tracking, so only continue if you've confirmed the wallet is actually flat for ${openCount === 1 ? "it" : "them"} (e.g. on Solscan).`
+          : "";
+      if (
+        !window.confirm(
+          `Start trading fresh from now? All existing signal history stays exactly as-is — this only resets open-position tracking to flat, so the next BUY signal isn't blocked by old state.${warning}`,
+        )
+      ) {
+        return;
+      }
+      resetTradePairingTracking();
+      chartToastInfo(
+        "Trading reset",
+        "Open-position tracking cleared for every pool — signal history is untouched. The next signal starts fresh.",
+      );
+    });
+  }
   const btnPosRefresh = document.getElementById("btn-positions-refresh");
   if (btnPosRefresh) {
     btnPosRefresh.addEventListener("click", () => {

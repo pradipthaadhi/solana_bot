@@ -29,6 +29,15 @@ export interface PositionSignalRow {
   signature?: string;
   /** Desk wallet SOL balance sampled right after this trade confirmed on-chain (`txStatus === "ok"` rows only). */
   walletBalanceSol?: number;
+  /** ISO 8601 — when this row was first written. Stamped by {@link appendPosition}; optional so rows logged before this field existed still load. */
+  createdAt?: string;
+  /**
+   * ISO 8601 — when this row was last modified after creation. Nothing currently mutates a row in
+   * place (every signal is logged once, with its final outcome already known), so this stays unset
+   * for every row today — it's here for whatever future flow ends up revising a logged row (e.g. a
+   * retried swap resolving a previously-logged attempt) so that action has somewhere to record it.
+   */
+  updatedAt?: string;
 }
 
 const LEGACY_LS_KEY = "sol_bot_positions_v1";
@@ -124,6 +133,12 @@ function isRow(x: unknown): x is PositionSignalRow {
   if (r.walletBalanceSol !== undefined && (typeof r.walletBalanceSol !== "number" || !Number.isFinite(r.walletBalanceSol))) {
     return false;
   }
+  if (r.createdAt !== undefined && typeof r.createdAt !== "string") {
+    return false;
+  }
+  if (r.updatedAt !== undefined && typeof r.updatedAt !== "string") {
+    return false;
+  }
   return true;
 }
 
@@ -154,9 +169,10 @@ export function formatPositionsTxt(rows: readonly PositionSignalRow[]): string {
   return rows.map((r) => rowToLine(r).trimEnd()).join("\n") + (rows.length ? "\n" : "");
 }
 
-/** Append one row to localStorage and try dev POST (no-op if not running Vite API). */
+/** Append one row to localStorage and try dev POST (no-op if not running Vite API). Stamps `createdAt` if the caller didn't already set one. */
 export async function appendPosition(row: PositionSignalRow): Promise<void> {
-  const line = rowToLine(row);
+  const stamped: PositionSignalRow = row.createdAt ? row : { ...row, createdAt: new Date().toISOString() };
+  const line = rowToLine(stamped);
   const cur = readLocalRaw();
   writeLocalRaw(cur + line);
   try {
