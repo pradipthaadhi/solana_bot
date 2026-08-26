@@ -998,6 +998,19 @@ button.btn-ghost-pill:not(:disabled):hover {
   box-shadow: 0 0 20px rgba(153, 69, 255, 0.12);
 }
 
+/** Same identity as the per-table "clear all" icon (.position-clear-all) — same destructive action, same color. */
+button.btn-danger-outline {
+  background: rgba(251, 146, 60, 0.1);
+  border-color: rgba(251, 146, 60, 0.4);
+  color: #fb923c;
+}
+
+button.btn-danger-outline:not(:disabled):hover {
+  background: rgba(251, 146, 60, 0.2);
+  border-color: rgba(251, 146, 60, 0.65);
+  box-shadow: 0 6px 20px rgba(251, 146, 60, 0.18);
+}
+
 /* —— Pair + metrics —— */
 .pair-block {
   margin-bottom: 4px;

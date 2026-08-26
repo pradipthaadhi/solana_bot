@@ -580,9 +580,10 @@ async function mount(): Promise<void> {
             <button id="btn-positions-start-new" type="button">Start New</button>
             <button id="btn-positions-refresh" type="button">Sync file</button>
             <button id="btn-positions-export" type="button">Download signal history (.txt)</button>
+            <button id="btn-positions-clear" type="button" class="btn-danger-outline">Clear</button>
           </div>
         </div>
-        <p class="hint signal-log-hint">Sorted by most recently updated (falls back to created, then signal time), <b>15 rows per page</b>. <b>Trade ID</b> is unique per BUY; the matching SELL reuses that id. <b>Tx</b> shows on-chain outcome (success / error / skipped). <b>Start New</b> resets open-position tracking to flat without deleting any history — use it if a pool's tracking looks stuck and you've confirmed the wallet is actually empty of it. Per-row trash; header clears the full log. <code>npm run chart:dev</code> syncs to <code>positions-&lt;port&gt;.txt</code> under <code>apps/chart-web/</code> (same port as <code>CHART_WEB_PORT</code>; one file per PM2 process); otherwise <b>Download</b> saves the list.</p>
+        <p class="hint signal-log-hint">Sorted by most recently updated (falls back to created, then signal time), <b>15 rows per page</b>. <b>Trade ID</b> is unique per BUY; the matching SELL reuses that id. <b>Tx</b> shows on-chain outcome (success / error / skipped). <b>Start New</b> resets open-position tracking to flat without deleting any history — use it if a pool's tracking looks stuck and you've confirmed the wallet is actually empty of it. <b>Clear</b> permanently deletes every row (confirmation required) — same action as the trash icon below. <code>npm run chart:dev</code> syncs to <code>positions-&lt;port&gt;.txt</code> under <code>apps/chart-web/</code> (same port as <code>CHART_WEB_PORT</code>; one file per PM2 process); otherwise <b>Download</b> saves the list.</p>
         <div class="table-scroll">
           <table class="positions-table" aria-label="Historical BUY and SELL signals">
             <thead>
@@ -846,6 +847,10 @@ async function mount(): Promise<void> {
     const clearAllBtn = document.getElementById("btn-positions-clear-all");
     if (clearAllBtn instanceof HTMLButtonElement) {
       clearAllBtn.disabled = n === 0;
+    }
+    const clearBtn = document.getElementById("btn-positions-clear");
+    if (clearBtn instanceof HTMLButtonElement) {
+      clearBtn.disabled = n === 0;
     }
   };
 
@@ -1661,26 +1666,38 @@ async function mount(): Promise<void> {
       downloadPositionsTxt(loadLocalPositions());
     });
   }
+  /**
+   * Shared by the table header's trash icon (btn-positions-clear-all) and the "Clear" button in
+   * the actions bar (btn-positions-clear) — same destructive action, two entry points, one
+   * confirmation modal (`window.confirm`, same pattern as every other destructive action in this
+   * app) so re-confirmation always happens regardless of which button was clicked.
+   */
+  const clearAllSignalHistory = (): void => {
+    if (loadLocalPositions().length === 0) {
+      return;
+    }
+    const openCount = openPositionPoolCount();
+    const warning =
+      openCount > 0
+        ? ` WARNING: ${openCount} pool${openCount === 1 ? " has" : "s have"} an open auto-bought position tracked — clearing forgets that tracking, so auto-SELL will no longer close ${openCount === 1 ? "it" : "them"} (you'll need to sell manually via the wallet panel, or reload without clearing to let it rehydrate).`
+        : "";
+    if (!window.confirm(`Delete all signal history rows? This cannot be undone.${warning}`)) {
+      return;
+    }
+    void clearAllPositions().then(() => {
+      clearInMemoryOpenPositions();
+      positionsPageIndex = 0;
+      onPositionsChanged();
+      chartToastInfo("Signal history cleared", "Every row was deleted. This cannot be undone.");
+    });
+  };
   const btnPosClearAll = document.getElementById("btn-positions-clear-all");
   if (btnPosClearAll) {
-    btnPosClearAll.addEventListener("click", () => {
-      if (loadLocalPositions().length === 0) {
-        return;
-      }
-      const openCount = openPositionPoolCount();
-      const warning =
-        openCount > 0
-          ? ` WARNING: ${openCount} pool${openCount === 1 ? " has" : "s have"} an open auto-bought position tracked — clearing forgets that tracking, so auto-SELL will no longer close ${openCount === 1 ? "it" : "them"} (you'll need to sell manually via the wallet panel, or reload without clearing to let it rehydrate).`
-          : "";
-      if (!window.confirm(`Delete all signal history rows? This cannot be undone.${warning}`)) {
-        return;
-      }
-      void clearAllPositions().then(() => {
-        clearInMemoryOpenPositions();
-        positionsPageIndex = 0;
-        onPositionsChanged();
-      });
-    });
+    btnPosClearAll.addEventListener("click", clearAllSignalHistory);
+  }
+  const btnPosClear = document.getElementById("btn-positions-clear");
+  if (btnPosClear) {
+    btnPosClear.addEventListener("click", clearAllSignalHistory);
   }
   const btnPosPrev = document.getElementById("btn-positions-prev");
   if (btnPosPrev) {
