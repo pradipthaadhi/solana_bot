@@ -91,6 +91,21 @@ function isNoRouteFoundError(message: string): boolean {
   );
 }
 
+/**
+ * `assertWithinMaxInput` (src/execution/safetyRails.ts) applies the VITE_SOL_BOT_MAX_INPUT_RAW
+ * cap to every quote, ExactOut included — and it's checked BEFORE the wallet-balance preflight, so
+ * this fires even when the wallet holds plenty of the token. A fixed-SOL-out ExactOut target can
+ * legitimately need more raw token input than the cap allows once a position has lost enough
+ * value that the same SOL-out target now costs far more of the (cheaper) token to reach — a
+ * POLICY limit, not a balance problem, but with the identical consequence if left unhandled: the
+ * SELL never succeeds, so the position (and this pool's auto-BUY) stays stuck forever. Same
+ * remedy as the other two — retry ExactIn capped at `maxTokenIn`, which is already bounded by
+ * deskEnv.maxInputRaw, so the retry's own quote is guaranteed to clear this exact check.
+ */
+function isMaxInputExceededError(message: string): boolean {
+  return message.includes("MAX_INPUT_EXCEEDED");
+}
+
 function buildRow(
   side: PositionSignalRow["side"],
   pairLabel: string,
@@ -243,7 +258,8 @@ function innerAutoAdapter(pairLabel: string, poolAddress: string, onPersisted: (
       } catch (first) {
         const firstMsg = first instanceof Error ? first.message : String(first);
         const noRoute = isNoRouteFoundError(firstMsg);
-        if ((!isSellInsufficientError(firstMsg) && !noRoute) || maxTokenIn < 1n) {
+        const capExceeded = isMaxInputExceededError(firstMsg);
+        if ((!isSellInsufficientError(firstMsg) && !noRoute && !capExceeded) || maxTokenIn < 1n) {
           return { ...row, txStatus: "error", txDetail: firstMsg };
         }
         const res = await executeJupiterSwap({
@@ -254,7 +270,9 @@ function innerAutoAdapter(pairLabel: string, poolAddress: string, onPersisted: (
           res,
           noRoute
             ? " — ExactOut had no route for this pair; retried as ExactIn (sold spendable token balance)."
-            : " — sold spendable token balance (ExactOut target needed more x than the wallet had).",
+            : capExceeded
+              ? " — ExactOut target exceeded the max-input safety cap; retried as ExactIn (sold spendable token balance, capped at the safety limit)."
+              : " — sold spendable token balance (ExactOut target needed more x than the wallet had).",
         );
       }
     } catch (e) {
