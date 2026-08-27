@@ -17,7 +17,7 @@ import {
   type SimulatedTransactionResponse,
 } from "@solana/web3.js";
 import { assertRpcHealthy } from "./rpcHealth.js";
-import { assertOnChainBroadcastAllowed, assertTradingAllowed, assertWithinMaxInput } from "./safetyRails.js";
+import { assertOnChainBroadcastAllowed, assertTradingAllowed } from "./safetyRails.js";
 import { fetchJupiterQuote, fetchJupiterSwapTransaction, readMaxQuotedInputForPreflight } from "./jupiterClient.js";
 import type { BroadcastOptions, JupiterQuoteParams, SafetyRails, SignVersionedTransaction } from "./types.js";
 
@@ -207,15 +207,10 @@ function pickJupiterOpts(params: ExecuteJupiterSwapParams): {
 
 export async function executeJupiterSwap(params: ExecuteJupiterSwapParams): Promise<ExecuteJupiterSwapResult> {
   assertTradingAllowed(params.rails);
-  /** For ExactOut, `amount` is output-side units, not wallet spend — cap applies to quoted `inAmount` only. */
-  if (params.quoteParams.swapMode !== "ExactOut") {
-    assertWithinMaxInput(params.quoteParams.amount, params.rails.maxInputRaw);
-  }
 
   const jupiterOpts = pickJupiterOpts(params);
   const quote = await fetchJupiterQuote(params.quoteParams, jupiterOpts);
   const maxQuotedIn = readMaxQuotedInputForPreflight(quote, params.quoteParams.swapMode, params.quoteParams.slippageBps);
-  assertWithinMaxInput(maxQuotedIn, params.rails.maxInputRaw);
   if (params.preflightSplBalanceRaw !== undefined && maxQuotedIn > params.preflightSplBalanceRaw) {
     throw new Error(
       `INSUFFICIENT_TOKEN_BALANCE: need up to ${maxQuotedIn.toString()} raw units of input mint (inAmount + slippage on input for ExactOut), wallet has ${params.preflightSplBalanceRaw.toString()}. ` +

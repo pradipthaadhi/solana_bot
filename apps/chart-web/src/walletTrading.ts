@@ -684,11 +684,6 @@ export function mountWalletTrading(root: HTMLElement): void {
           "No quote / route",
           "Jupiter could not quote this exact SOL output (no route or unsupported). Try another amount, token, or slippage.",
         );
-      } else if (/MAX_INPUT_EXCEEDED/i.test(msg)) {
-        chartToastError(
-          "Size cap",
-          "Swap would exceed VITE_SOL_BOT_MAX_INPUT_RAW — increase the cap in .env or use a smaller size.",
-        );
       }
     } finally {
       setBusy(false);
