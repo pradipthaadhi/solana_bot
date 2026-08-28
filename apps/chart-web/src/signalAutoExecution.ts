@@ -173,7 +173,6 @@ function innerAutoAdapter(pairLabel: string, poolAddress: string, onPersisted: (
     const signTransaction = createKeypairSigner(kp);
     const rails = {
       killSwitchEngaged: deskEnv.killSwitch,
-      maxInputRaw: deskEnv.maxInputRaw,
       operationalMode: deskEnv.mode,
     };
 

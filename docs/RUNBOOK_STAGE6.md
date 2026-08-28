@@ -12,7 +12,6 @@
 | `RPC_URL` | Private mainnet HTTPS Solana RPC (e.g. Alchemy); public `api.mainnet-beta` rate-limits / 403s |
 | `MODE` | `replay` \| `paper` \| `live` — controls **on-chain broadcast guard** in `executeJupiterSwap` |
 | `SIGNING_MODE` | `phantom_ui` \| `headless_dev` — must align with how you sign |
-| `SOL_BOT_MAX_INPUT_RAW` | Optional per-leg cap (bigint string) for `SafetyRails.maxInputRaw` |
 | `SOL_BOT_KILL_SWITCH` | `1` = halt swaps at safety layer |
 | `SOL_BOT_HEADLESS_SIGNER` | `1` + `SOLANA_SECRET_KEY` for Model B |
 | `SOL_BOT_LIVE_JUPITER` | `1` = run optional live Jupiter Vitest |
@@ -26,7 +25,7 @@
 ## 3. Operational modes
 
 - **`MODE=paper` (default):** fetch, simulate, sign in UI — but **`executeJupiterSwap` throws `MODE_PAPER`** if `broadcast: true`. Use simulate-only paths or unset `operationalMode` on rails for legacy tests.
-- **`MODE=live`:** on-chain broadcast allowed when the caller passes `broadcast: true`. Still subject to kill switch and max input.
+- **`MODE=live`:** on-chain broadcast allowed when the caller passes `broadcast: true`. Still subject to the kill switch.
 - **`MODE=replay`:** same broadcast guard as paper; for offline CSV / backtests.
 
 ## 4. Inspect resolved config
@@ -54,7 +53,6 @@ Pass `rails` into `executeJupiterSwap` / `createJupiterSignalExecutionAdapter` s
 ## 6. Checklist before mainnet dust
 
 - [ ] `MODE=live` only after explicit review.
-- [ ] `SOL_BOT_MAX_INPUT_RAW` set to a **tiny** cap.
 - [ ] `SOL_BOT_KILL_SWITCH=0` or unset; verify chart / runner maps kill switch correctly.
 - [ ] RPC healthy (`assertRpcHealthy` in executor path).
 - [ ] Jupiter simulation clean before first send.

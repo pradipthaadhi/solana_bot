@@ -27,14 +27,11 @@ export interface BotEnv {
   solBotHeadlessSigner: boolean;
   solBotKillSwitch: boolean;
   solBotLiveJupiter: boolean;
-  /** Optional cap for `SafetyRails.maxInputRaw` (lamports or token raw units). */
-  solBotMaxInputRaw: bigint | undefined;
 }
 
 const DEFAULT_VS = "usd";
 /** Fallback only; production and browser UIs should set RPC_URL / VITE_RPC_URL to a private HTTPS RPC. */
 const DEFAULT_RPC = "https://api.mainnet-beta.solana.com";
-const DEFAULT_MAX_INPUT_RAW = 50_000n;
 
 function trimUndef(v: string | undefined): string | undefined {
   const t = v?.trim();
@@ -78,18 +75,6 @@ function parseBool01(raw: string | undefined): boolean {
   return raw?.trim() === "1" || raw?.trim().toLowerCase() === "true";
 }
 
-function parseBigIntOpt(raw: string | undefined): bigint | undefined {
-  const t = raw?.trim();
-  if (t === undefined || t.length === 0) {
-    return undefined;
-  }
-  try {
-    return BigInt(t);
-  } catch {
-    throw new Error(`SOL_BOT_MAX_INPUT_RAW must be an integer string (got ${JSON.stringify(raw)})`);
-  }
-}
-
 /**
  * Load Stage 6 configuration from `process.env` (or tests: pass a plain object).
  */
@@ -106,7 +91,6 @@ export function loadBotEnv(env: NodeJS.ProcessEnv = process.env): BotEnv {
     solBotHeadlessSigner: parseBool01(env.SOL_BOT_HEADLESS_SIGNER),
     solBotKillSwitch: parseBool01(env.SOL_BOT_KILL_SWITCH),
     solBotLiveJupiter: parseBool01(env.SOL_BOT_LIVE_JUPITER),
-    solBotMaxInputRaw: parseBigIntOpt(env.SOL_BOT_MAX_INPUT_RAW),
   };
 }
 
@@ -124,7 +108,6 @@ export function redactBotEnv(e: BotEnv): Record<string, unknown> {
     solBotHeadlessSigner: e.solBotHeadlessSigner,
     solBotKillSwitch: e.solBotKillSwitch,
     solBotLiveJupiter: e.solBotLiveJupiter,
-    solBotMaxInputRaw: e.solBotMaxInputRaw?.toString() ?? null,
   };
 }
 
@@ -134,13 +117,11 @@ export function redactBotEnv(e: BotEnv): Record<string, unknown> {
  */
 export function buildSafetyRailsFromBotEnv(
   e: BotEnv,
-  overrides?: { maxInputRaw?: bigint; killSwitchEngaged?: boolean },
+  overrides?: { killSwitchEngaged?: boolean },
 ): SafetyRails {
-  const maxInputRaw = overrides?.maxInputRaw ?? e.solBotMaxInputRaw ?? DEFAULT_MAX_INPUT_RAW;
   const killSwitchEngaged = overrides?.killSwitchEngaged ?? e.solBotKillSwitch;
   return {
     killSwitchEngaged,
-    maxInputRaw,
     operationalMode: e.mode,
   };
 }

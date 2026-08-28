@@ -44,8 +44,6 @@ export interface JupiterSwapRequest {
 export interface SafetyRails {
   /** When true, all swap sends are blocked (Stage 5.5). */
   killSwitchEngaged: boolean;
-  /** Maximum input amount (base units) allowed for this leg. */
-  maxInputRaw: bigint;
   /**
    * When set to `paper` or `replay`, {@link executeJupiterSwap} refuses on-chain broadcast even if the caller requests it.
    * Omit for backward-compatible “caller controls policy” behavior (tests / Model A UI).

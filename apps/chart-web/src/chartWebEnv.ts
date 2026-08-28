@@ -3,7 +3,6 @@ import type { OperationalMode } from "@bot/scope/stage0.js";
 export interface DeskEnv {
   rpcUrl: string;
   tokenMint: string;
-  maxInputRaw: bigint;
   mode: OperationalMode;
   killSwitch: boolean;
   /** Lamports of SOL to spend on each SIGNAL_ENTRY (ExactIn SOL → x_token). 1e6 = 0.001 SOL. */
@@ -32,7 +31,6 @@ export function readDeskEnv(): DeskEnv {
     rpcUrl: (import.meta.env.VITE_RPC_URL ?? "https://api.mainnet-beta.solana.com").trim(),
     // Optional fallback SPL mint when Gecko meta is missing; normally resolved from the loaded SOL pair pool (e.g. USDC for SOL/USDC).
     tokenMint: (import.meta.env.VITE_TOKEN_MINT ?? "").trim(),
-    maxInputRaw: BigInt(import.meta.env.VITE_SOL_BOT_MAX_INPUT_RAW ?? "5000000"),
     mode: parseMode(modeRaw),
     killSwitch: import.meta.env.VITE_SOL_BOT_KILL_SWITCH === "1",
     signalBuyLamports: BigInt(import.meta.env.VITE_SIGNAL_BUY_LAMPORTS ?? "1000000"),

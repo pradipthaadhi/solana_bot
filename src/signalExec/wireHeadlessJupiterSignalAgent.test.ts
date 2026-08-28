@@ -27,7 +27,6 @@ describe("createHeadlessJupiterSignalAgent", () => {
       MODE: "live",
       RPC_URL: "https://api.mainnet-beta.solana.com",
       TOKEN_MINT: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-      SOL_BOT_MAX_INPUT_RAW: "5000000",
       SOL_BOT_KILL_SWITCH: "0",
       SIGNING_MODE: "headless_dev",
     } as NodeJS.ProcessEnv);
@@ -86,7 +85,6 @@ describe("createHeadlessJupiterSignalAgent", () => {
       MODE: "paper",
       RPC_URL: "https://api.mainnet-beta.solana.com",
       TOKEN_MINT: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-      SOL_BOT_MAX_INPUT_RAW: "5000000",
       SOL_BOT_KILL_SWITCH: "0",
     } as NodeJS.ProcessEnv);
     const exec = loadHeadlessSignalExecConfig({

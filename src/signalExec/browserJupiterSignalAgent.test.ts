@@ -4,7 +4,6 @@ import type { SafetyRails } from "../execution/types.js";
 
 const rails: SafetyRails = {
   killSwitchEngaged: false,
-  maxInputRaw: 10_000_000n,
   operationalMode: "paper",
 };
 
@@ -43,21 +42,5 @@ describe("createBrowserJupiterSignalAgent", () => {
         simulateOnly: true,
       }),
     ).toThrow(/targetMint/i);
-  });
-
-  it("throws when maxInputRaw is below buy spend", () => {
-    expect(() =>
-      createBrowserJupiterSignalAgent({
-        connection: {} as import("@solana/web3.js").Connection,
-        userPublicKeyBase58: "11111111111111111111111111111111",
-        signTransaction: async (tx) => tx,
-        rails: { ...rails, maxInputRaw: 100n },
-        slippageBps: 100,
-        targetMint: "So11111111111111111111111111111111111111112",
-        buySpendLamports: 1_000_000n,
-        sellTokenRaw: 1_000n,
-        simulateOnly: true,
-      }),
-    ).toThrow(/maxInputRaw/i);
   });
 });

@@ -46,16 +46,6 @@ export function createHeadlessJupiterSignalAgent(
   }
 
   const rails = buildSafetyRailsFromBotEnv(bot);
-  if (rails.maxInputRaw < exec.buySpendLamports) {
-    throw new Error(
-      `SOL_BOT_MAX_INPUT_RAW (${rails.maxInputRaw.toString()}) must be >= SIGNAL_EXEC_BUY_LAMPORTS (${exec.buySpendLamports.toString()}).`,
-    );
-  }
-  if (rails.maxInputRaw < exec.sellTokenRaw) {
-    throw new Error(
-      `SOL_BOT_MAX_INPUT_RAW (${rails.maxInputRaw.toString()}) must be >= SIGNAL_EXEC_SELL_TOKEN_RAW (${exec.sellTokenRaw.toString()}) for the SELL leg cap check.`,
-    );
-  }
 
   const signer = createKeypairSigner(deps.keypair);
   const jupiter = createJupiterSignalExecutionAdapter({

@@ -625,7 +625,6 @@ export function mountWalletTrading(root: HTMLElement): void {
         quoteParams,
         rails: {
           killSwitchEngaged: env.killSwitch,
-          maxInputRaw: env.maxInputRaw,
           operationalMode: env.mode,
         },
         signTransaction,

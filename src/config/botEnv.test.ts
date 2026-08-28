@@ -35,30 +35,26 @@ describe("loadBotEnv (Stage 6)", () => {
     const r = redactBotEnv(
       loadBotEnv({
         TOKEN_MINT: "So11111111111111111111111111111111111111112",
-        SOL_BOT_MAX_INPUT_RAW: "25000",
       }),
     );
     expect(r.tokenMint).toBeTruthy();
-    expect(r.solBotMaxInputRaw).toBe("25000");
   });
 });
 
 describe("buildSafetyRailsFromBotEnv", () => {
-  it("maps kill switch and max input", () => {
+  it("maps kill switch and mode", () => {
     const rails = buildSafetyRailsFromBotEnv(
       loadBotEnv({
         SOL_BOT_KILL_SWITCH: "1",
-        SOL_BOT_MAX_INPUT_RAW: "123",
         MODE: "replay",
       }),
     );
     expect(rails.killSwitchEngaged).toBe(true);
-    expect(rails.maxInputRaw).toBe(123n);
     expect(rails.operationalMode).toBe("replay");
   });
 
-  it("override max wins", () => {
-    const rails = buildSafetyRailsFromBotEnv(loadBotEnv({}), { maxInputRaw: 99n });
-    expect(rails.maxInputRaw).toBe(99n);
+  it("override kill switch wins", () => {
+    const rails = buildSafetyRailsFromBotEnv(loadBotEnv({}), { killSwitchEngaged: true });
+    expect(rails.killSwitchEngaged).toBe(true);
   });
 });

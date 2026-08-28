@@ -57,17 +57,6 @@ export function createBrowserJupiterSignalAgent(
     throw new Error("targetMint is required for Jupiter BUY/SELL legs.");
   }
 
-  if (cfg.rails.maxInputRaw < cfg.buySpendLamports) {
-    throw new Error(
-      `maxInputRaw (${cfg.rails.maxInputRaw.toString()}) must be >= buySpendLamports (${cfg.buySpendLamports.toString()}).`,
-    );
-  }
-  if (cfg.rails.maxInputRaw < cfg.sellTokenRaw) {
-    throw new Error(
-      `maxInputRaw (${cfg.rails.maxInputRaw.toString()}) must be >= sellTokenRaw (${cfg.sellTokenRaw.toString()}).`,
-    );
-  }
-
   const jupiter = createJupiterSignalExecutionAdapter({
     connection: cfg.connection,
     userPublicKeyBase58: cfg.userPublicKeyBase58,

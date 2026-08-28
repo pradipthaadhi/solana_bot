@@ -11,7 +11,6 @@ This path runs **`SignalAgent`** on **GeckoTerminal 1m OHLCV** (same pool id as 
 - Node 20+, repo `npm install`
 - A **GeckoTerminal Solana pool address** (same string you paste in chart-web)
 - `TOKEN_MINT` = the **output mint on BUY** / **input mint on SELL** (must match the pair you trade; often the pool’s non-SOL leg)
-- `SOL_BOT_MAX_INPUT_RAW` ≥ `SIGNAL_EXEC_BUY_LAMPORTS` **and** ≥ `SIGNAL_EXEC_SELL_TOKEN_RAW` (the executor caps **each leg’s** quoted input against this field)
 - Headless signer: `SOL_BOT_HEADLESS_SIGNER=1`, `SIGNING_MODE=headless_dev`, `SOLANA_SECRET_KEY` (base58 or JSON byte array)
 
 ## 2. Environment (minimal)
@@ -23,7 +22,6 @@ export TOKEN_MINT="<SPL mint for Jupiter legs>"
 export RPC_URL="<private mainnet HTTPS RPC — e.g. Alchemy https://www.alchemy.com/solana ; avoid public api.mainnet-beta for sustained use>"
 export MODE=paper                    # safe default
 export SIGNAL_EXEC_SIMULATE_ONLY=1 # default if unset — Jupiter quote + simulate only
-export SOL_BOT_MAX_INPUT_RAW=5000000
 export SOL_BOT_KILL_SWITCH=0
 export SOL_BOT_HEADLESS_SIGNER=1
 export SIGNING_MODE=headless_dev
