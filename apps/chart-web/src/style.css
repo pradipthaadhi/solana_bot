@@ -1204,18 +1204,48 @@ button.btn-danger-outline:not(:disabled):hover {
 }
 
 .wallet-balance-card__hud {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
   min-height: 1.35em;
   margin: 8px 0 0;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  background: rgba(8, 10, 16, 0.45);
+  border: 1px solid transparent;
+}
+
+.wallet-balance-hud__badge {
+  flex: none;
+  font-size: 9px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  letter-spacing: 0.05em;
+  padding: 2px 6px;
+  border-radius: 999px;
+}
+
+.wallet-balance-hud__badge--buy {
+  color: #00d68f;
+  background: rgba(0, 214, 143, 0.14);
+  border: 1px solid rgba(0, 214, 143, 0.32);
+}
+
+.wallet-balance-hud__badge--sell {
+  color: #ff3b5c;
+  background: rgba(255, 59, 92, 0.14);
+  border: 1px solid rgba(255, 59, 92, 0.32);
+}
+
+.wallet-balance-hud__meta {
+  flex: 1 1 auto;
+  min-width: 0;
   font-size: 11px;
   line-height: 1.5;
   color: var(--text-muted);
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   word-break: break-word;
-  padding: 6px 10px;
-  border-radius: var(--radius-sm);
-  background: rgba(8, 10, 16, 0.45);
-  border: 1px solid transparent;
 }
 
 .wallet-balance-card__hud:not(:empty) {
